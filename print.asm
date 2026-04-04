@@ -1,15 +1,19 @@
-
-dochar: 
-    call cprint
-; Put address of line in si
-println:
+sprint:
     lodsb
     cmp al, 0
-    jne dochar
+    jz .done
+    call cprint
+    jmp sprint
+.done:
+    ret
+
+println:
+    call sprint
     add byte [ypos], 1  ; down one row
     mov byte [xpos], 0  ; back to left of screen 
     ret
 
+; prints character at al
 cprint:
     cmp al, 10
     jne .draw_char
@@ -41,19 +45,35 @@ cprint:
     ret
 
 
+printreg16:
+    mov di, outstr16 ; di = &string
+    mov ax, [reg16] ; ax = *reg
+    mov si, hexstr  ; si = &hexstr
+    mov cx, 4 ; four places?
+.hexloop:
+    ; rotate the bits in ax, 4 times.
+    ; i.e, shift left by 1 nibble
+    rol ax, 4
+    mov bx, ax
+    and bx, 0x000F ; get original rightmost nibble
 
-bios_print:
-	lodsb ; load string byte
-		  ; read character pointed at by SI and put into AL register
-		  ; increment SI by 1
-	or al, al ; Update the zero flag
-	jz .exit
-	mov ah, DISPLAY_CHARACTER ;function  display character
-	mov bh, 0
-	int BIOS_VIDEO_INT
-	jmp bios_print
-.exit:
+    ; how does it calculate si +bx if its different at runtime?
+    mov bl, [si + bx] ; bl = *(&hexstr + character)
+    mov [di], bl  ; *id = bl 
+    inc di
+    dec cx
+    jnz .hexloop
+
+    mov si, outstr16
+    call sprint
+
     ret
+
 
 xpos db 0
 ypos db 0
+
+hexstr db "0123456789ABCDEF"
+outstr16   db "0000", 0  ;register value string
+reg16 dw 0
+

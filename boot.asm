@@ -30,9 +30,16 @@ start:
 	
 	mov si, msg ; si points to msg address
 	call println
+    mov word [reg16], sp
+    call printreg16
+
+    mov al, ' '
+    call cprint
+
+    mov word [reg16], di
+    call printreg16
 
     jmp $
-
 
 
 msg db `Hello worldd whats up dawn here\nyay a new linewoahh!\0`
