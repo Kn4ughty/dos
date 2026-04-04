@@ -44,7 +44,11 @@ cprint:
 
     ret
 
+;todo. Make printreg8 function
+; maybe make new byte -> 2char procedure?
 
+; write contents you want printed to reg16
+; i.e mov word [reg16], ax
 printreg16:
     mov di, outstr16 ; di = &string
     mov ax, [reg16] ; ax = *reg
