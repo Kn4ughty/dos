@@ -1,3 +1,5 @@
+TEXT_VIDEO_MEMORY equ 0xb8000
+
 sprint:
     lodsb
     cmp al, 0
@@ -22,24 +24,22 @@ cprint:
     ret
 .draw_char:
     mov ah, 0x0F ; attrib = white on black
+    mov ecx, eax
 
-    push ax
+    movzx eax, byte [ypos]
 
-    movzx ax, byte [ypos]
-    mov dx, 160 ; total length of bytes (80cols * stride of 2)
-    mul dx ; y pos * 160.
+    mov edx, 160 ; total length of bytes (80cols * stride of 2)
+    mul edx ; y pos * 160.
 
-    movzx bx, byte [xpos]
-    shl bx, 1 ; bx = x * 2
+    movzx ebx, byte [xpos]
+    shl ebx, 1 ; bx = x * 2
 
-    mov di, 0
-    add di, ax
-    add di, bx ; di = (y*80*2 + xpos*2) 
+    mov edi, TEXT_VIDEO_MEMORY
+    add edi, eax
+    add edi, ebx
 
-    pop ax
-    ;store string word
-    stosw ; Copy value of ax into address of di
-          ; Then increment di by 2
+    mov eax, ecx
+    mov word [ds:edi], ax
     add byte [xpos], 1
 
     ret
@@ -49,26 +49,26 @@ cprint:
 
 ; write contents you want printed to reg16
 ; i.e mov word [reg16], ax
-printreg16:
-    mov di, outstr16 ; di = &string
-    mov ax, [reg16] ; ax = *reg
-    mov si, hexstr  ; si = &hexstr
-    mov cx, 4 ; four places?
+printreg32:
+    mov edi, outstr32
+    mov eax, [reg32]
+    mov esi, hexstr
+    mov ecx, 8
 .hexloop:
     ; rotate the bits in ax, 4 times.
     ; i.e, shift left by 1 nibble
-    rol ax, 4
-    mov bx, ax
-    and bx, 0x000F ; get original rightmost nibble
+    rol eax, 4
+    mov ebx, eax
+    and ebx, 0x0F ; get original rightmost nibble
 
     ; how does it calculate si +bx if its different at runtime?
-    mov bl, [si + bx] ; bl = *(&hexstr + character)
-    mov [di], bl  ; *id = bl 
-    inc di
-    dec cx
+    mov bl, [esi + ebx] ; bl = *(&hexstr + character)
+    mov [edi], bl  ; *id = bl 
+    inc edi
+    dec ecx
     jnz .hexloop
 
-    mov si, outstr16
+    mov esi, outstr32
     call sprint
 
     ret
@@ -78,6 +78,6 @@ xpos db 0
 ypos db 0
 
 hexstr db "0123456789ABCDEF"
-outstr16   db "0000", 0  ;register value string
-reg16 dw 0
+outstr32   db "00000000", 0  ;register value string
+reg32 dd 0
 
