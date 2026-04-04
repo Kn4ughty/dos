@@ -15,76 +15,68 @@ start:
 
 	cli
 
-    push ds
-    lgdt [gdtinfo]
 
-    ; switch to pmode
-    mov eax, cr0 
-    or al, 1
-    mov cr0, eax
+    mov ah, 0x41
+    mov bx, 0x55AA
 
-    mov bx, 0x08
-    mov ds, bx ; ds = 0b1000
+    mov dl, 0x80
+    int 0x13
 
-    and al, 0xFE ; back to realmode??
-    mov cr0, eax
-    pop ds
-    sti
+    cmp bx, 0xAA55
+    mov si, BX_SWAP_FAIL
+    jne ERROR
 
-    ; mov al, 0x02 ; smiley
-    ; call cprint
-    ; mov eax, 0x0b8000;
-    ; mov word [ds:eax], bx
+    ; cx contains supported commands
+    and cx, 0
+    mov si, RW_FAIL
+    jnz ERROR
 
-    ; jmp $
+    mov si, DAPACK
+    mov ah, 0x42
+    mov dl, 0x80
+    int 0x13
+    mov si, MYSTERY
+    ; jmp ERROR
+    ; jc short ERROR
 
-    mov ax, TEXT_VIDEO_MEMORY
-    mov es, ax
 
-    mov bx, 0x09 ; hardware interrupt 0x09. Keyboard
-    shl bx, 2
-    xor ax, ax
-    mov gs, ax
-    ; copy the address of the keyhandler routine to 0x09
-    mov [gs:bx], word keyhandler
-    mov [gs:bx+2], ds ; segment
-    sti ; enable interrupts
-    ;
-    ; jmp $
+    mov al, [blkcnt]
+    mov [reg16], al
+    call printreg16
+
+    mov si, next_sector_txt
+    call sprint
+
+    jmp $
+
+
+; prints string at adress in si
+ERROR:
+    call sprint
+    jmp $
+
 
 gdtinfo:
    dw gdt_end - gdt - 1   ;last byte in table
    dd gdt         ;start of table
 
-
-keyhandler:
-    in al, 0x60 ; read from port 0x60 (96)
-    mov bl, al
-
-    mov byte [port60], al
-    in al, 0x61 ; keyboard control
-    mov ah, al
-    or al, 0x80 ; disable bit 7
-    out 0x61, al ; send it back
-    xchg ah, al ; get original
-    out 0x61, al ; send that back
-
-    mov al, 0x20
-    out 0x20, al
-
-    and bl, 0x80 ; key released
-    jnz .done ; don't repeat
-
-    mov ax, [port60]
-    mov word [reg32], ax
-    call printreg32
-.done:
-    iret
-
     ; mov bl, al
 port60   dw 0
 
-msg db `Hello worldd whats up dawn here\nyay a new linewoahh!\0`
+DAPACK:
+    db 0x10
+    db 0
+blkcnt: dw 16 ; read 16 blocks
+db_add: 
+    dw NEXT_SECTOR; memory destination
+    dw 0 ; memory page
+d_lba:
+    dd 1 ; put the lba to read in this spot
+    dd 0 ; more storage bytes only for big lba
+
+BX_SWAP_FAIL db `bx not swapped!\n`, 0
+RW_FAIL db `read_write not supported in cx \n`, 0
+MYSTERY db `mystery\n`, 0
 
 gdt dd 0,0
 flatdesc db 0xff, 0xff, 0,0,0, 0b10010010, 0b11001111, 0
@@ -93,5 +85,5 @@ gdt_end:
 times 510-($-$$) db 0
 db 0x55
 db 0xAA
-
-
+NEXT_SECTOR:
+next_sector_txt db "hello look at this!", 0

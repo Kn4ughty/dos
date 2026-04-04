@@ -73,11 +73,54 @@ printreg32:
 
     ret
 
+printreg16:
+    push di
+    push ax
+    push si
+    push cx
+    push bx
+
+    mov di, outstr16 ; di = &string
+    mov ax, [reg16] ; ax = *reg
+    mov si, hexstr  ; si = &hexstr
+    mov cx, 4 ; four places?
+.hexloop:
+    ; rotate the bits in ax, 4 times.
+    ; i.e, shift left by 1 nibble
+    rol ax, 4
+    mov bx, ax
+    and bx, 0x000F ; get original rightmost nibble
+
+    ; how does it calculate si +bx if its different at runtime?
+    mov bl, [si + bx] ; bl = *(&hexstr + character)
+    mov [di], bl  ; *id = bl 
+    inc di
+    dec cx
+    jnz .hexloop
+
+    mov si, outstr16
+    call sprint
+    mov al, ' '
+    call cprint
+
+    pop bx
+    pop cx
+    pop si
+    pop ax
+    pop di
+
+    ret
+
+
 
 xpos db 0
 ypos db 0
 
 hexstr db "0123456789ABCDEF"
+
+outstr16   db "0000", 0  ;register value string
+reg16 dw 0
+
 outstr32   db "00000000", 0  ;register value string
 reg32 dd 0
 
