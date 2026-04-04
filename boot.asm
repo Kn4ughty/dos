@@ -1,3 +1,7 @@
+jmp main
+
+; to include: '%include "othercode.asm"'
+
 BIOS_VIDEO_INT	    equ 0x10
 ; al register should contain character code
 ; bh should contain page number (text display screen)
@@ -24,6 +28,7 @@ done: ; why is this here?
 	mov ds, ax
 	cld ; clear direction flag
 
+main:
     BiosPrint msg
 
 hang:
