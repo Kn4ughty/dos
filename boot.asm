@@ -100,20 +100,15 @@ TXT_MEM_TYPE db "t ", 0
 TXT_MEM_BASE db       "Base address: 0x", 0
 TXT_MEM_SIZE db "  Size: 0x", 0
 
-align 4
-mmap_ent:
-times 24*20 db 0
-mmap_end:
-
 ; code from: https://wiki.osdev.org/Detecting_Memory_(x86)#Getting_an_E820_Memory_Map
 ; use the INT 0x15, eax= 0xE820 BIOS function to get a memory map
 ; note: initially di is 0, be sure to set it to a value so that the BIOS code will not be overwritten. 
 ;       The consequence of overwriting the BIOS code will lead to problems like getting stuck in `int 0x15`
 ; inputs: es:di -> destination buffer for 24 byte entries
 ; outputs: bp = entry count, trashes all registers except esi
-; mmap_ent equ 0x8000             ; the number of entries will be stored at 0x8000
 do_e820:
-    mov di, mmap_ent          ; Set di to 0x8004. Otherwise this code will get stuck in `int 0x15` after some entries are fetched 
+    ; mov di, mmap_ent          ; Set di to 0x8004. Otherwise this code will get stuck in `int 0x15` after some entries are fetched 
+    add di, 4
 	xor ebx, ebx		; ebx must be 0 to start
 	xor bp, bp		; keep an entry count in bp
 	mov edx, 0x0534D4150	; Place "SMAP" into edx
@@ -151,12 +146,13 @@ do_e820:
 	test ebx, ebx		; if ebx resets to 0, list is complete
 	jne short .e820lp
 .e820f:
-	mov [es:mmap_ent], bp	; store the entry count
+	mov [es:BOOT_DATA_TABLE], bp	; store the entry count
 	clc			; there is "jc" on end of list to this point, so the carry must be cleared
 	ret
 .failed:
 	stc			; "function unsupported" error exit
 	ret
+
 
 
 ; di should contain pointer to an indiviudual entry
@@ -196,7 +192,6 @@ print_mem_entry:
 
     mov al, `\n`
     call cprint
-    ; jmp $
 
     pop eax
     pop bx
@@ -206,37 +201,30 @@ print_mem_entry:
     ret
 
 next_code:
-    ; in al, 0x92
-    ; test al, 2
-    ; jnz .after
-    ; or al, 2
-    ; and al, 0xFE
-    ; out 0x92, al
-; .after:
-    
-
+    ; Get memory table and print it
+    mov di, BOOT_DATA_TABLE
     call do_e820
-    mov si, di
-    mov di, mmap_ent
-.print_loop
+    ; di = pointer
+    mov di, BOOT_DATA_TABLE + 4
+    ; eax = memory count
+    mov eax, dword [BOOT_DATA_TABLE]
+    ; ecx = current index
+    mov ecx, 0
+.print_loop:
     call print_mem_entry
+    add ecx, 1
     add di, 24
-    cmp di, si
+    cmp ecx, eax
     jl .print_loop
 
-    jmp $
-
-
-
-    ; move word [reg16], [mem_type]
-    ; mov eax, [mem_type]
-    ; mov dword [reg32], eax
-    ; call printreg32
-    ; call printreg16
-
 
     jmp $
-
-
 
 times (512*5) db 0
+
+; Must go at end of disk, as memory use will expand as needed
+align 4
+BOOT_DATA_TABLE:
+; mmap_ent:
+; times 24*20 db 0
+; mmap_end:
