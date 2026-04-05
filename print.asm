@@ -3,9 +3,9 @@ TEXT_VIDEO_MEMORY equ 0xb8000
 sprint:
     lodsb
     cmp al, 0
-    jz .done
+    jz short .done
     call cprint
-    jmp sprint
+    jmp short sprint
 .done:
     ret
 
@@ -18,7 +18,7 @@ println:
 ; prints character at al
 cprint:
     cmp al, 10
-    jne .draw_char
+    jne short .draw_char
     add byte [ypos], 1
     mov byte [xpos], 0
     ret
@@ -47,12 +47,12 @@ cprint:
 ;todo. Make printreg8 function
 ; maybe make new byte -> 2char procedure?
 
-; write contents you want printed to reg16
-; i.e mov word [reg16], ax
+; write contents you want printed to reg32
+; i.e mov dword [reg32], eax
 printreg32:
     mov edi, outstr32
     mov eax, [reg32]
-    mov esi, hexstr
+    mov si, hexstr
     mov ecx, 8
 .hexloop:
     ; rotate the bits in ax, 4 times.
@@ -63,16 +63,18 @@ printreg32:
 
     ; how does it calculate si +bx if its different at runtime?
     mov bl, [esi + ebx] ; bl = *(&hexstr + character)
-    mov [edi], bl  ; *id = bl 
+    mov byte [edi], bl  ; *id = bl 
     inc edi
     dec ecx
-    jnz .hexloop
+    jnz short .hexloop
 
-    mov esi, outstr32
+    mov si, outstr32
     call sprint
 
     ret
 
+; write contents you want printed to reg16
+; i.e mov word [reg16], ax
 printreg16:
     push di
     push ax
@@ -96,7 +98,7 @@ printreg16:
     mov [di], bl  ; *id = bl 
     inc di
     dec cx
-    jnz .hexloop
+    jnz short .hexloop
 
     mov si, outstr16
     call sprint
@@ -112,13 +114,13 @@ printreg16:
     ret
 
 
-
 xpos db 0
 ypos db 0
 
 hexstr db "0123456789ABCDEF"
+decstr db "0123456789"
 
-outstr16   db "0000", 0  ;register value string
+outstr16   db  "0000", 0  ;register value string
 reg16 dw 0
 
 outstr32   db "00000000", 0  ;register value string
