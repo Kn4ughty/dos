@@ -17,11 +17,17 @@ println:
 
 ; prints character at al
 cprint:
+    push ebx
+    push ecx
+    push eax
+    push edx
+    push edi
+
     cmp al, 10
     jne short .draw_char
     add byte [ypos], 1
     mov byte [xpos], 0
-    ret
+    jmp .exit
 .draw_char:
     mov ah, 0x0F ; attrib = white on black
     mov ecx, eax
@@ -41,6 +47,13 @@ cprint:
     mov eax, ecx
     mov word [ds:edi], ax
     add byte [xpos], 1
+
+.exit:
+    pop edi
+    pop edx
+    pop eax
+    pop ecx
+    pop ebx
 
     ret
 
