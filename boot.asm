@@ -29,9 +29,9 @@ start:
     mov si, BX_SWAP_FAIL
     jne SEC1ERROR
     ; cx contains supported commands
-    and cx, 0
+    test cx, 1
     mov si, RW_FAIL
-    jnz SEC1ERROR
+    jz SEC1ERROR
     ; https://www.ctyme.com/intr/rb-0708.htm
     mov si, DAPACK
     mov ah, 0x42
@@ -99,27 +99,23 @@ TXT_MEM_TYPE db "t ", 0
 TXT_MEM_BASE db       "Base address: 0x", 0
 TXT_MEM_SIZE db "  Size: 0x", 0
 
-MEM_INFO:
-mem_baseaddr dq 0
-mem_length dq 0
-mem_type dd 0
-mem_eabf dd 0
-
-mmap_ent equ 0x8000
+align 4
+mmap_ent:
+times 24*1 db 0
 
 get_mmap:
-    ; ; Detect available ram
+    ; Detect available ram
     mov ax, 0
     mov es, ax
     mov ds, ax
     mov bp, ax
     xor ebx, ebx
 
-    mov eax, 0xe820
-    xor ebx, ebx
-    mov ecx, 24
     mov edx, 0x534d4150 ; SMAP in ascii
-    mov di, MEM_INFO
+    mov eax, 0xe820
+    mov di, mmap_ent
+    ; mov [es:di+20], dword 1
+    mov ecx, 24
 
     int 0x15
 
@@ -128,8 +124,12 @@ get_mmap:
     cmp eax, edx
     jne short .ERROR
     test ebx, ebx
+    je short .ERROR
 
-    jmp print_mem_entry
+    ; print out found mmap
+    mov di, mmap_ent
+    call print_mem_entry
+
     jmp $
 
 .ERROR:
@@ -138,36 +138,37 @@ get_mmap:
 
 ; di should contain pointer to an indiviudual entry
 print_mem_entry:
-    mov di, MEM_INFO
 
+    mov bp, di
 
-    movzx ax, cl 
-    mov word [reg16], ax
-    call printreg16
-
-    mov si, TXT_MEM_TYPE
-    call sprint
-    mov ax, [MEM_INFO+16]
-    mov word [reg16], ax
+    mov bx, [es:bp + 16]
+    mov word [reg16], bx
     call printreg16
 
     mov si, TXT_MEM_BASE
     call sprint
-    mov eax, [MEM_INFO+4]
+
+    mov eax, dword [es:bp+4]
     mov dword [reg32], eax
     call printreg32
-    mov eax, [MEM_INFO]
+
+    mov eax, dword [es:bp]
     mov dword [reg32], eax
     call printreg32
 
     mov si, TXT_MEM_SIZE
     call sprint
-    mov eax, [MEM_INFO+12]
+
+    mov eax, [es:bp+12]
     mov dword [reg32], eax
     call printreg32
-    mov eax, [MEM_INFO+8]
+
+    mov eax, [es:bp+8]
     mov dword [reg32], eax
     call printreg32
+
+    mov al, `\n`
+    call cprint
 
     ret
 

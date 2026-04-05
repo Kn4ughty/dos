@@ -47,31 +47,6 @@ cprint:
 ;todo. Make printreg8 function
 ; maybe make new byte -> 2char procedure?
 
-; write contents you want printed to reg32
-; i.e mov dword [reg32], eax
-printreg32:
-    mov edi, outstr32
-    mov eax, [reg32]
-    mov si, hexstr
-    mov ecx, 8
-.hexloop:
-    ; rotate the bits in ax, 4 times.
-    ; i.e, shift left by 1 nibble
-    rol eax, 4
-    mov ebx, eax
-    and ebx, 0x0F ; get original rightmost nibble
-
-    ; how does it calculate si +bx if its different at runtime?
-    mov bl, [esi + ebx] ; bl = *(&hexstr + character)
-    mov byte [edi], bl  ; *id = bl 
-    inc edi
-    dec ecx
-    jnz short .hexloop
-
-    mov si, outstr32
-    call sprint
-
-    ret
 
 ; write contents you want printed to reg16
 ; i.e mov word [reg16], ax
@@ -113,6 +88,44 @@ printreg16:
 
     ret
 
+
+; write contents you want printed to reg32
+; i.e mov dword [reg32], eax
+printreg32:
+    push si
+    push edi
+    push eax
+    push ecx
+    push ebx
+
+    mov edi, outstr32
+    mov eax, [reg32]
+    mov si, hexstr
+    mov ecx, 8
+.hexloop:
+    ; rotate the bits in ax, 4 times.
+    ; i.e, shift left by 1 nibble
+    rol eax, 4
+    mov ebx, eax
+    and ebx, 0x0F ; get original rightmost nibble
+
+    ; how does it calculate si +bx if its different at runtime?
+    mov bl, [esi + ebx] ; bl = *(&hexstr + character)
+    mov byte [edi], bl  ; *id = bl 
+    inc edi
+    dec ecx
+    jnz short .hexloop
+
+    mov si, outstr32
+    call sprint
+
+    pop ebx
+    pop ecx
+    pop eax
+    pop edi
+    pop si
+
+    ret
 
 xpos db 0
 ypos db 0
