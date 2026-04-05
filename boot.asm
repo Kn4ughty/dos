@@ -96,7 +96,6 @@ next_sector_txt db "Successfully loaded next sector", 0
 TXT_MEM_INFO_FAIL db "Failed to read memory", 0
 TXT_MEM_FOUND_PREAMBLE  db "Found 0x", 0
 TXT_MEM_FOUND_POSTAMBLE db "KB of memory available", 0
-TXT_MEM_TYPE db "t ", 0
 TXT_MEM_BASE db       "Base address: 0x", 0
 TXT_MEM_SIZE db "  Size: 0x", 0
 
@@ -106,6 +105,8 @@ TXT_MEM_SIZE db "  Size: 0x", 0
 ;       The consequence of overwriting the BIOS code will lead to problems like getting stuck in `int 0x15`
 ; inputs: es:di -> destination buffer for 24 byte entries
 ; outputs: bp = entry count, trashes all registers except esi
+
+
 do_e820:
     ; mov di, mmap_ent          ; Set di to 0x8004. Otherwise this code will get stuck in `int 0x15` after some entries are fetched 
     add di, 4
@@ -164,29 +165,31 @@ print_mem_entry:
 
     mov bp, di
 
-    mov bx, [es:bp + 16]
+    mov al, 't'
+    call cprint
+    mov bx, [es:bp + AddressRangeDescriptor.Type]
     mov word [reg16], bx
     call printreg16
 
     mov si, TXT_MEM_BASE
     call sprint
 
-    mov eax, dword [es:bp+4]
+    mov eax, dword [es:bp+AddressRangeDescriptor.BaseAddrHigh]
     mov dword [reg32], eax
     call printreg32
 
-    mov eax, dword [es:bp]
+    mov eax, dword [es:bp+AddressRangeDescriptor.BaseAddrLow]
     mov dword [reg32], eax
     call printreg32
 
     mov si, TXT_MEM_SIZE
     call sprint
 
-    mov eax, [es:bp+12]
+    mov eax, dword [es:bp+AddressRangeDescriptor.BaseAddrHigh]
     mov dword [reg32], eax
     call printreg32
 
-    mov eax, [es:bp+8]
+    mov eax, dword [es:bp+AddressRangeDescriptor.BaseAddrLow]
     mov dword [reg32], eax
     call printreg32
 
@@ -217,14 +220,51 @@ next_code:
     cmp ecx, eax
     jl .print_loop
 
+    ; Collect video output data
+    ; https://wiki.osdev.org/VESA_Video_Modes
+
 
     jmp $
 
 times (512*5) db 0
 
+; https://thejat.in/learn/struc-directive-in-nasm
+
+struc AddressRangeDescriptor
+    .BaseAddrLow  resd 1
+    .BaseAddrHigh resd 1
+    .LengthLow    resd 1
+    .LengthHigh   resd 1
+    .Type         resd 1
+endstruc
+
+struc VesaInfoBlock				;	VesaInfoBlock_size = 512 bytes
+	.Signature		resb 4		;	must be 'VESA'
+	.Version		resw 1
+	.OEMNamePtr		resd 1
+	.Capabilities		resd 1
+
+	.VideoModesOffset	resw 1
+	.VideoModesSegment	resw 1
+
+	.CountOf64KBlocks	resw 1
+	.OEMSoftwareRevision	resw 1
+	.OEMVendorNamePtr	resd 1
+	.OEMProductNamePtr	resd 1
+	.OEMProductRevisionPtr	resd 1
+	.Reserved		resb 222
+	.OEMData		resb 256
+endstruc
+
+ALIGN(4)
+
+VesaInfoBlockBuffer: 
+    istruc VesaInfoBlock
+        at VesaInfoBlock.Signature,				db "VESA"
+        times 508 db 0
+    iend
+
 ; Must go at end of disk, as memory use will expand as needed
 align 4
 BOOT_DATA_TABLE:
-; mmap_ent:
-; times 24*20 db 0
-; mmap_end:
+
