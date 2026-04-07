@@ -230,13 +230,6 @@ times (512*5) db 0
 
 ; https://thejat.in/learn/struc-directive-in-nasm
 
-struc AddressRangeDescriptor
-    .BaseAddrLow  resd 1
-    .BaseAddrHigh resd 1
-    .LengthLow    resd 1
-    .LengthHigh   resd 1
-    .Type         resd 1
-endstruc
 
 struc VesaInfoBlock				;	VesaInfoBlock_size = 512 bytes
 	.Signature		resb 4		;	must be 'VESA'
@@ -267,4 +260,11 @@ VesaInfoBlockBuffer:
 ; Must go at end of disk, as memory use will expand as needed
 align 4
 BOOT_DATA_TABLE:
+struc AddressRangeDescriptor
+    .BaseAddrLow  resd 1
+    .BaseAddrHigh resd 1
+    .LengthLow    resd 1
+    .LengthHigh   resd 1
+    .Type         resd 1
+endstruc
 
