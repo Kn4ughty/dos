@@ -2,6 +2,7 @@ CC        := i686-elf-gcc
 CFLAGS    := -ffreestanding -O2 -std=gnu99 -Wall -Wextra
 LDFLAGS   := -ffreestanding -O2 -nostdlib -lgcc
 AS        := i686-elf-as
+ASFLAGS   := 
 
 BUILD_DIR := build
 ISO_DIR   := $(BUILD_DIR)/isodir
@@ -21,7 +22,7 @@ $(KERNEL): $(OBJS) linker.ld | $(BUILD_DIR)
 
 $(BUILD_DIR)/boot.o: boot.s | $(BUILD_DIR)
 	# first prerequisite, output target file
-	$(AS) $< -o $@
+	$(AS) $< -o $@ $(ASFLAGS)
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) -c $< -o $@ $(CFLAGS)

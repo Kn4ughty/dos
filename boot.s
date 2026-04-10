@@ -1,7 +1,9 @@
 /* Declare constants for the multiboot header. */
+# https://www.gnu.org/software/grub/manual/multiboot/multiboot.html
 .set ALIGN,    1<<0             /* align loaded modules on page boundaries */
 .set MEMINFO,  1<<1             /* provide memory map */
-.set FLAGS,    ALIGN | MEMINFO  /* this is the Multiboot 'flag' field */
+.set VIDINFO,  0<<2             /* provide video mode */
+.set FLAGS,    ALIGN | MEMINFO | VIDINFO
 .set MAGIC,    0x1BADB002       /* 'magic number' lets bootloader find the header */
 .set CHECKSUM, -(MAGIC + FLAGS) /* checksum of above, to prove we are multiboot */
 
@@ -45,24 +47,13 @@ doesn't make sense to return from this function as the bootloader is gone.
 .global _start
 .type _start, @function
 _start:
-	/*
-	The bootloader has loaded us into 32-bit protected mode on a x86
-	machine. Interrupts are disabled. Paging is disabled. The processor
-	state is as defined in the multiboot standard. The kernel has full
-	control of the CPU. The kernel can only make use of hardware features
-	and any code it provides as part of itself. There's no printf
-	function, unless the kernel provides its own <stdio.h> header and a
-	printf implementation. There are no security restrictions, no
-	safeguards, no debugging mechanisms, only what the kernel provides
-	itself. It has absolute and complete power over the
-	machine.
-	*/
 
-	/*
-	To set up a stack, we set the esp register to point to the top of the
-	stack (as it grows downwards on x86 systems). This is necessarily done
-	in assembly as languages such as C cannot function without a stack.
-	*/
+    cmp $0x2BADB002, %eax
+    jne not_multiboot
+
+    # move src, dest
+    # mov address of stack top into esp register
+    # Address=base+(index×scale)+disp
 	mov $stack_top, %esp
 
 	/*
@@ -84,7 +75,7 @@ _start:
 	stack since (pushed 0 bytes so far), so the alignment has thus been
 	preserved and the call is well defined.
 	*/
-	call kernel_main
+	call kernel_main # how does the linker know?
 
 	/*
 	If the system has nothing more to do, put the computer into an
@@ -102,8 +93,76 @@ _start:
 1:	hlt
 	jmp 1b
 
+
+
 /*
 Set the size of the _start symbol to the current location '.' minus its start.
 This is useful when debugging or when you implement call tracing.
 */
 .size _start, . - _start
+
+TXT_not_multiboot: .asciz "Was not booted from multiboot!"
+
+not_multiboot:
+    mov TXT_not_multiboot, %esi
+    call sprint
+
+.set TEXT_VIDEO_MEMORY, 0xb8000
+xpos: .byte 0
+ypos: .byte 0
+
+# set %esi
+sprint:
+    lodsb
+    cmpb $0, %al
+    jz .done
+    call cprint
+    jmp sprint
+.done:
+    ret
+
+println:
+    call sprint
+    incb ypos
+    movb $0, xpos  # back to left of screen 
+    ret
+
+# prints character at al
+cprint:
+    pushl %ebx
+    pushl %ecx
+    pushl %eax
+    pushl %edx
+    pushl %edi
+
+    cmpb $10, %al
+    jne .draw_char
+    incb ypos
+    movb $0, xpos  # back to left of screen 
+    jmp .exit
+.draw_char:
+    mov 0x0F, %ah # attrib = white on black
+    mov %eax, %ecx
+
+    movzbl ypos, %eax
+
+    movl $160, %edx # total length of bytes (80cols * stride of 2)
+    mull %edx # y pos * 160.
+
+    movzbl xpos, %ebx
+    shll $1, %ebx # bx = x * 2
+
+    movl $TEXT_VIDEO_MEMORY, %edi
+    addl %eax, %edi
+    addl %ebx, %edi
+    
+    movw %cx, (%edi)
+    incb xpos
+
+.exit:
+    pop %edi
+    pop %edx
+    pop %eax
+    pop %ecx
+    pop %ebx
+    ret
