@@ -38,6 +38,7 @@ stack_bottom:
 .skip 16384 # 16 KiB
 stack_top:
 
+
 /*
 The linker script specifies _start as the entry point to the kernel and the
 bootloader will jump to this position once the kernel has been loaded. It
@@ -49,7 +50,11 @@ doesn't make sense to return from this function as the bootloader is gone.
 _start:
 
     cmp $0x2BADB002, %eax
-    jne not_multiboot
+    je good
+    cli
+    1: hlt
+    jmp 1b
+good:
 
     # move src, dest
     # mov address of stack top into esp register
@@ -101,68 +106,3 @@ This is useful when debugging or when you implement call tracing.
 */
 .size _start, . - _start
 
-TXT_not_multiboot: .asciz "Was not booted from multiboot!"
-
-not_multiboot:
-    mov TXT_not_multiboot, %esi
-    call sprint
-
-.set TEXT_VIDEO_MEMORY, 0xb8000
-xpos: .byte 0
-ypos: .byte 0
-
-# set %esi
-sprint:
-    lodsb
-    cmpb $0, %al
-    jz .done
-    call cprint
-    jmp sprint
-.done:
-    ret
-
-println:
-    call sprint
-    incb ypos
-    movb $0, xpos  # back to left of screen 
-    ret
-
-# prints character at al
-cprint:
-    pushl %ebx
-    pushl %ecx
-    pushl %eax
-    pushl %edx
-    pushl %edi
-
-    cmpb $10, %al
-    jne .draw_char
-    incb ypos
-    movb $0, xpos  # back to left of screen 
-    jmp .exit
-.draw_char:
-    mov 0x0F, %ah # attrib = white on black
-    mov %eax, %ecx
-
-    movzbl ypos, %eax
-
-    movl $160, %edx # total length of bytes (80cols * stride of 2)
-    mull %edx # y pos * 160.
-
-    movzbl xpos, %ebx
-    shll $1, %ebx # bx = x * 2
-
-    movl $TEXT_VIDEO_MEMORY, %edi
-    addl %eax, %edi
-    addl %ebx, %edi
-    
-    movw %cx, (%edi)
-    incb xpos
-
-.exit:
-    pop %edi
-    pop %edx
-    pop %eax
-    pop %ecx
-    pop %ebx
-    ret
