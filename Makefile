@@ -1,5 +1,5 @@
 CC        := i686-elf-gcc
-CFLAGS    := -ffreestanding -O2 -std=gnu99 -Wall -Wextra
+CFLAGS    := -ffreestanding -O2 -std=gnu99 -Wall -Wextra -MMD
 LDFLAGS   := -ffreestanding -O2 -nostdlib -lgcc
 AS        := i686-elf-as
 ASFLAGS   := 
