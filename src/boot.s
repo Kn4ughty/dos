@@ -19,6 +19,11 @@ forced to be within the first 8 KiB of the kernel file.
 .long MAGIC
 .long FLAGS
 .long CHECKSUM
+.skip 20
+mode_type: .long 0
+width:     .long 1024
+heght:     .long 786
+depth:     .long 0
 
 /*
 The multiboot standard does not define the value of the stack pointer register
@@ -72,12 +77,17 @@ good:
 	runtime support to work as well.
 	*/
 
+    # Push 4*4 bytes to keep alignment
+    pushl %ebx
+    pushl %ebx
+    pushl %ebx
+    pushl %ebx
 	/*
 	Enter the high-level kernel. The ABI requires the stack is 16-byte
 	aligned at the time of the call instruction (which afterwards pushes
 	the return pointer of size 4 bytes). The stack was originally 16-byte
 	aligned above and we've pushed a multiple of 16 bytes to the
-	stack since (pushed 0 bytes so far), so the alignment has thus been
+	stack since (pushed 16 bytes so far), so the alignment has thus been
 	preserved and the call is well defined.
 	*/
 	call kernel_main # how does the linker know?
