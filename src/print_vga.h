@@ -1,4 +1,5 @@
-#include <stddef.h>
+#ifndef PRINT_VGA_H
+#define PRINT_VGA_H
 
 size_t strlen(const char *str);
 void terminal_initialize(void);
@@ -16,3 +17,5 @@ void printbin32(uint32_t input);
     uint32_t: printbin32, \
     int32_t: printbin32   \
 )(T)
+
+#endif
