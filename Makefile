@@ -1,26 +1,43 @@
-ROOT := $($(pwd))
-CC = i686-elf-gcc
+CC        := i686-elf-gcc
+CFLAGS    := -ffreestanding -O2 -std=gnu99 -Wall -Wextra
+LDFLAGS   := -ffreestanding -O2 -nostdlib -lgcc
+AS        := i686-elf-as
 
-all: build verify run
+BUILD_DIR := build
+ISO_DIR   := $(BUILD_DIR)/isodir
+KERNEL    := $(BUILD_DIR)/kernel
+ISO       := $(BUILD_DIR)/myos.iso
 
-build:
-	mkdir -p ./build
-	i686-elf-as boot.s -o build/boot.o
-	$(CC) -c kernel.c -o build/kernel.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra
-	# cd build
-	i686-elf-gcc -T linker.ld -o build/kernel -ffreestanding -O2 -nostdlib build/boot.o build/kernel.o -lgcc
-	# Make disk image
-	mkdir -p build/isodir/boot/grub
-	cp build/kernel build/isodir/boot/my_os
-	cp grub.cfg build/isodir/boot/grub/grub.cfg
-	grub-mkrescue -o build/myos.iso build/isodir
+OBJS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o
 
-verify: build
-	grub-file --is-x86-multiboot build/myos.iso
+all: $(ISO) verify
 
-run:
-	qemu-system-i386 -monitor stdio -m 256 -cdrom build/myos.iso
-	qemu-system-i386 -cdrom myos.iso
+$(BUILD_DIR):
+	mkdir -p $@
+
+$(KERNEL): $(OBJS) linker.ld | $(BUILD_DIR)
+	@mkdir -p $(@D) # target file directory
+	$(CC) -T linker.ld -o $@ $(LDFLAGS) $(OBJS)
+
+$(BUILD_DIR)/boot.o: boot.s | $(BUILD_DIR)
+	# first prerequisite, output target file
+	$(AS) $< -o $@
+
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
+	$(CC) -c $< -o $@ $(CFLAGS)
+
+$(ISO): $(KERNEL) grub.cfg
+	@mkdir -p $(ISO_DIR)/boot/grub
+	cp $(KERNEL) $(ISO_DIR)/boot/my_os
+	cp grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
+	grub-mkrescue -o $(ISO) $(ISO_DIR)
+
+verify: $(ISO)
+	grub-file --is-x86-multiboot $(KERNEL)
+
+run: $(ISO)
+	# qemu-system-i386 -monitor stdio -m 256 -cdrom build/myos.iso
+	qemu-system-i386 -cdrom $(ISO)
 
 clean:
-	rm -r build/
+	rm -r $(BUILD_DIR)
