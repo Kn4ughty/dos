@@ -5,6 +5,7 @@
 #include "print_vga.h"
 #define SERIAL_OUTPUT
 #include "stdio.h"
+#include "string.h"
 
 /* This tutorial will only work for the 32-bit ix86 targets. */
 #if !defined(__i386__) && !defined(__i486__)
@@ -65,5 +66,8 @@ void kernel_main(BootInformationFormat* info) {
 
     uint32_t flags = info->flags;
     printbin(flags);
-    puts("Hello serial bus!\n");
+
+    StringView s = sv("test");
+
+    puts(s);
 }

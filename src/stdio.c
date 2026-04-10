@@ -9,6 +9,26 @@
 // shamless https://wiki.osdev.org/Serial_Ports#Example_Code
 #define PORT 0x3f8          // COM1
 
+
+static inline void outb(uint16_t port, uint8_t val)
+{
+    __asm__ volatile ( "outb %b0, %w1" : : "a"(val), "Nd"(port) : "memory");
+    /* There's an outb %al, $imm8 encoding, for compile-time constant port numbers that fit in 8b. (N constraint).
+     * Wider immediate constants would be truncated at assemble-time (e.g. "i" constraint).
+     * The  outb  %al, %dx  encoding is the only option for all other cases.
+     * %1 expands to %dx because  port  is a uint16_t.  %w1 could be used if we had the port number a wider C type */
+}
+
+static inline uint8_t inb(uint16_t port)
+{
+    uint8_t ret;
+    __asm__ volatile ( "inb %w1, %b0"
+                   : "=a"(ret)
+                   : "Nd"(port)
+                   : "memory");
+    return ret;
+}
+
 bool init_serial() {
    outb(PORT + 1, 0x00);    // Disable all interrupts
    outb(PORT + 3, 0x80);    // Enable DLAB (set baud rate divisor)
@@ -45,27 +65,14 @@ bool is_transmit_empty() {
    return inb(PORT + 5) & 0x20;
 }
 
-void write_serial(char a) {
+void serial_write_char(char a) {
    while (is_transmit_empty() == 0);
 
    outb(PORT,a);
 }
 
-void putchar(char c) { 
-    write_serial(c);  
-}
 
-void serial_write(const char *data, size_t size) {
-    for (size_t i=0; i < size; i++)
-        putchar(data[i]);
+void serial_write_string_view(StringView s) {
+    for (size_t i=0; i < s.len; i++)
+        serial_write_char(s.data[i]);
 }
-
-/* 
-outputs positive value on success.
-returns EOF if an error
-Currently cannot actually error so its void
-*/
-void puts(const char* s) {
-    serial_write(s, strlen(s));
-}
-
