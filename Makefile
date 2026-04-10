@@ -11,7 +11,10 @@ ISO       := $(BUILD_DIR)/myos.iso
 
 SRC := src
 
-OBJS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/print_vga.o
+SRCS := $(wildcard src/*.c)
+OBJS := $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(SRCS))
+AS_SRCS := $(wildcard src/*.s)
+OBJS += $(patsubst src/%.s, $(BUILD_DIR)/%.o, $(AS_SRCS))
 
 all: $(ISO) verify
 
@@ -40,7 +43,7 @@ verify: $(ISO)
 
 run: $(ISO)
 	# qemu-system-i386 -monitor stdio -m 256 -cdrom build/myos.iso
-	qemu-system-i386 -cdrom $(ISO)
+	qemu-system-i386 -cdrom $(ISO) -serial stdio
 
 clean:
 	rm -r $(BUILD_DIR)
