@@ -812,9 +812,9 @@ typedef enum greatest_test_res {
                 struct greatest_run_info *g = &greatest_info;                  \
                 if (GREATEST_IS_VERBOSE()) {                                   \
                         GREATEST_FPRINTF(GREATEST_STDOUT,                      \
-                                         "FAIL %s: %s (%s:%u)", g->name_buf,   \
-                                         g->msg ? g->msg : "", g->fail_file,   \
-                                         g->fail_line);                        \
+                                         "\x1b[31mFAIL %s\x1b[0m: %s (%s:%u)", \
+                                         g->name_buf, g->msg ? g->msg : "",    \
+                                         g->fail_file, g->fail_line);          \
                 } else {                                                       \
                         GREATEST_FPRINTF(GREATEST_STDOUT, "F");                \
                         g->col++; /* add linebreak if in line of '.'s */       \
@@ -822,10 +822,11 @@ typedef enum greatest_test_res {
                                 GREATEST_FPRINTF(GREATEST_STDOUT, "\n");       \
                                 g->col = 0;                                    \
                         }                                                      \
-                        GREATEST_FPRINTF(GREATEST_STDOUT,                      \
-                                         "FAIL %s: %s (%s:%u)\n", g->name_buf, \
-                                         g->msg ? g->msg : "", g->fail_file,   \
-                                         g->fail_line);                        \
+                        GREATEST_FPRINTF(                                      \
+                            GREATEST_STDOUT,                                   \
+                            "\x1b[31mFAIL %s\x1b[0m: %s (%s:%u)\n",            \
+                            g->name_buf, g->msg ? g->msg : "", g->fail_file,   \
+                            g->fail_line);                                     \
                 }                                                              \
                 g->suite.failed++;                                             \
         }                                                                      \
@@ -1281,11 +1282,12 @@ typedef enum greatest_test_res {
                             GREATEST_STDOUT, ", %u assertion%s\n",             \
                             greatest_info.assertions,                          \
                             greatest_info.assertions == 1 ? "" : "s");         \
-                        GREATEST_FPRINTF(GREATEST_STDOUT,                      \
-                                         "Pass: %u, fail: %u, skip: %u.\n",    \
-                                         greatest_info.passed,                 \
-                                         greatest_info.failed,                 \
-                                         greatest_info.skipped);               \
+                        GREATEST_FPRINTF(                                      \
+                            GREATEST_STDOUT,                                   \
+                            "\x1b[32mPass: %u\x1b[0m, \x1b[31mfail: "          \
+                            "%u\x1b[0m, skip: %u.\n",                          \
+                            greatest_info.passed, greatest_info.failed,        \
+                            greatest_info.skipped);                            \
                 }                                                              \
         }                                                                      \
                                                                                \
