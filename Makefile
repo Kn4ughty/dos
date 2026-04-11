@@ -38,7 +38,7 @@ $(BUILD_DIR)/boot.o: $(SRC)/boot.s | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC)/%.c | $(BUILD_DIR)
 	$(CC) -c $< -o $@ $(CFLAGS)
 
-$(BUILD_DIR)/test_%: tests/test_%.c $(TEST_SRCS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_%: tests/test_%.c  tests/host_stubs.c $(TEST_SRCS) | $(BUILD_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) $^ -o $@
 
 $(ISO): $(KERNEL) $(SRC)/grub.cfg

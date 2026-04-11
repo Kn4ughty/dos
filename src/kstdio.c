@@ -12,22 +12,32 @@ uint32_t rol(uint32_t value, uint32_t count)
 
 int printbasen(uint32_t input, uint8_t base)
 {
-        if (base > 16 || base == 0) {
-                // cannot print base larger than 16!
+        if (base > 16 || base < 2) {
+                // cannot print base larger than 16 (for now)!
+                // base 1 is also not supported lol (tally marks)
                 return -1;
         }
         StringView base_str = sv("0123456789ABCDEF");
         base_str.len = base;
 
-        char outstr[32]; // max needed
+        char outstr[32]; // max possible (base 2)
         int i = 0;
         while (input) {
                 outstr[i] = base_str.data[input % base];
                 input /= base;
                 i++;
         }
+        i -= 1;
+        // Reverse outstr with 2 ptr approach, walking from both sides
+        // left = j; right = i - j;
+        for (int j = 0; j < i - j; j++) {
+                // swap left and right
+                char tmp = outstr[j];
+                outstr[j] = outstr[i - j];
+                outstr[i - j] = tmp;
+        }
 
-        puts((StringView){.data = outstr, .len = i});
+        k_puts((StringView){.data = outstr, .len = i + 1});
         return 0;
 }
 
@@ -53,7 +63,7 @@ int k_printf(StringView format, ...)
                 char c = format.data[i++];
 
                 if (c != '%') {
-                        putchar(c);
+                        k_putchar(c);
                         continue;
                 }
 
@@ -64,23 +74,25 @@ int k_printf(StringView format, ...)
 
                 switch (specfier) {
                 case 'c':
-                        putchar((char)va_arg(args, int));
+                        k_putchar((char)va_arg(args, int));
                         break;
-                case '0':
-                        // need to prefix output string with 0's
+                case 'X':
                 case 'x':
                         printbasen(va_arg(args, uint32_t), 16);
                         break;
                 case 'd':
                         printbasen(va_arg(args, uint32_t), 10);
                         break;
+                case 'b':
+                        printbasen(va_arg(args, uint32_t), 2);
+                        break;
                 case '%':
-                        putchar('%');
+                        k_putchar('%');
                         break;
                 default:
-                        // unknown specfier
-                        putchar('%');
-                        putchar(specfier);
+                        // unknown specfier, print it out literally
+                        k_putchar('%');
+                        k_putchar(specfier);
                         break;
                 }
         }
