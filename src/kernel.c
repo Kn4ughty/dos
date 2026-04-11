@@ -3,14 +3,29 @@
 #include <stdint.h>
 
 #include "print_vga.h"
-#define SERIAL_OUTPUT
 #include "stdio.h"
 #include "string.h"
 
 /* This tutorial will only work for the 32-bit ix86 targets. */
 #if !defined(__i386__) && !defined(__i486__)
-#error "This tutorial needs to be compiled with a ix86-elf compiler"
+#error "This needs to be compiled with a ix86-elf compiler"
 #endif
+
+struct multiboot_aout_symbol_table {
+        uint32_t tabsize;
+        uint32_t strsize;
+        uint32_t addr;
+        uint32_t reserved;
+};
+typedef struct multiboot_aout_symbol_table multiboot_aout_symbol_table_t;
+struct multiboot_elf_section_header_table {
+        uint32_t num;
+        uint32_t size;
+        uint32_t addr;
+        uint32_t shndx;
+};
+typedef struct multiboot_elf_section_header_table
+    multiboot_elf_section_header_table_t;
 
 // https://www.gnu.org/software/grub/manual/multiboot/multiboot.html#Boot-information-format
 typedef struct {
@@ -19,14 +34,20 @@ typedef struct {
         uint32_t mem_upper; // flags[0]
 
         uint32_t boot_device; // flags[1]
-        uint32_t cmdline;     // flags[2]
+
+        uint32_t cmdline; // flags[2]
 
         uint32_t mods_count; // flags[3]
         uint32_t mods_addr;  // flags[3]
+
         // requires flag[4] or flag[5]
-        uint32_t syms1;
-        uint32_t syms2;
-        uint32_t syms3;
+        // uint32_t syms1;
+        // uint32_t syms2;
+        // uint32_t syms3;
+        union {
+                multiboot_aout_symbol_table_t aout_sym;
+                multiboot_elf_section_header_table_t elf_sec;
+        } u;
 
         uint32_t mmap_length; // flags[6]
         uint32_t mmap_addr;   // flags[6]
@@ -59,12 +80,12 @@ typedef struct {
 
 } __attribute__((packed)) BootInformationFormat;
 
-struct mmap_entry {
+typedef struct {
         uint32_t size;
         uint64_t base_addr;
         uint64_t length;
         uint32_t type;
-};
+} __attribute__((packed)) MmapEntry;
 
 void kernel_main(BootInformationFormat *info)
 {
@@ -72,9 +93,47 @@ void kernel_main(BootInformationFormat *info)
         terminal_initialize();
         init_serial();
 
+        // printhex((uint32_t)info);
+        // puts(SV_LIT("\n"));
+        // printhex(info->flags);
+
         uint32_t flags = info->flags;
-        if ((flags >> 6) & 1) {
-                puts(SV_LIT("Memory map flag is set!"));
+        if (!((flags >> 6) & 1)) {
+                // panic!
+                return;
         }
+
+        // uint8_t *mmap_ptr = (uint8_t *)info->mmap_addr;
+
+        puts(SV_LIT("Memory map flag is set!\n"));
+        puts(SV_LIT("\n"));
+
+        uint32_t total_processed = 0;
+        uint8_t *mmap_ptr = (uint8_t *)(uintptr_t)info->mmap_addr;
+
+        // while (total_processed < info->mmap_length) {
+        for (MmapEntry *entry = (MmapEntry *)(uintptr_t)info->mmap_addr;
+             (uintptr_t)entry < (info->mmap_addr + info->mmap_length);
+             entry = (MmapEntry *)((uint8_t *)entry + entry->size + 4)) {
+
+                // while (total_processed < 3) {
+                MmapEntry *entry = (MmapEntry *)(mmap_ptr);
+                puts(SV_LIT("t: "));
+                printhex((uint32_t)entry->type);
+
+                puts(SV_LIT(" len: 0x"));
+                printhex((uint32_t)entry->length);
+
+                puts(SV_LIT(" base_addr: 0x"));
+                printhex((uint32_t)entry->base_addr);
+
+                puts(SV_LIT("\n"));
+                // printhex(mmap->length);
+                // break;
+                uint32_t size = entry->size + sizeof(entry->size);
+                mmap_ptr += size;
+                total_processed += size;
+        }
+        //
         // StringView s = sv("test");
 }

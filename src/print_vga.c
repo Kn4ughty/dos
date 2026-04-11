@@ -68,7 +68,7 @@ void terminal_putentryat(char c, uint8_t color, size_t x, size_t y)
         terminal_buffer[index] = vga_entry(c, color);
 }
 
-void terminal_putchar(char c)
+void vga_putchar(char c)
 {
         if (c == '\n') {
                 terminal_column = 0;
@@ -86,64 +86,10 @@ void terminal_putchar(char c)
 void terminal_write(const char *data, size_t size)
 {
         for (size_t i = 0; i < size; i++)
-                terminal_putchar(data[i]);
+                vga_putchar(data[i]);
 }
 
-void terminal_writestring(const char *data)
+void vga_write_string_view(StringView sv)
 {
-        terminal_write(data, strlen(data));
-}
-
-uint32_t rol(uint32_t value, uint32_t count)
-{
-        return (value << count) | (value >> (32 - count));
-}
-
-void printhex(uint32_t input)
-{
-        const char *hexstr = "0123456789ABCDEF";
-        char outstr[] = "00000000";
-        for (int i = 0; i < 8; i++) {
-                int idx =
-                    rol(input, 4 * (i + 1)) & 0x0F; // get new rightmost nibble
-                char c = hexstr[idx];
-                outstr[i] = c;
-        }
-        terminal_writestring(outstr);
-}
-
-void printbin8(uint8_t input)
-{
-        const char *binstr = "01";
-        char outstr[8];
-        for (int i = 0; i < 8; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[7 - i] = c;
-        }
-        terminal_writestring(outstr);
-}
-
-void printbin16(uint16_t input)
-{
-        const char *binstr = "01";
-        char outstr[16];
-        for (int i = 0; i < 16; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[15 - i] = c;
-        }
-        terminal_writestring(outstr);
-}
-
-void printbin32(uint32_t input)
-{
-        const char *binstr = "01";
-        char outstr[32];
-        for (int i = 0; i < 32; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[31 - i] = c;
-        }
-        terminal_writestring(outstr);
+        terminal_write(sv.data, sv.len);
 }
