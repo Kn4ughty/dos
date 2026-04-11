@@ -10,6 +10,7 @@
 TEST test_atoi_basic()
 {
         ASSERT_EQ_FMT(123, k_atoi(sv("123")), "%d");
+        ASSERT_EQ_FMT(607, k_atoi(sv("0607")), "%d");
         PASS();
 }
 

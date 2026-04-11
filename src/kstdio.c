@@ -10,6 +10,13 @@ uint32_t rol(uint32_t value, uint32_t count)
         return (value << count) | (value >> (32 - count));
 }
 
+#define isdigit isdigit_
+inline bool isdigit_(char c)
+{
+        return (c >= '0' && c <= '9');
+}
+
+// int printbasen(uint32_t input, uint8_t base, int padding)
 int printbasen(uint32_t input, uint8_t base)
 {
         if (base > 16 || base < 2) {
@@ -20,24 +27,16 @@ int printbasen(uint32_t input, uint8_t base)
         StringView base_str = sv("0123456789ABCDEF");
         base_str.len = base;
 
+        // walk backwards so reversing isnt needed, and to easily add padding
         char outstr[32]; // max possible (base 2)
-        int i = 0;
+        int i = 31;
         while (input) {
                 outstr[i] = base_str.data[input % base];
                 input /= base;
-                i++;
-        }
-        i -= 1;
-        // Reverse outstr with 2 ptr approach, walking from both sides
-        // left = j; right = i - j;
-        for (int j = 0; j < i - j; j++) {
-                // swap left and right
-                char tmp = outstr[j];
-                outstr[j] = outstr[i - j];
-                outstr[i - j] = tmp;
+                i--;
         }
 
-        k_puts((StringView){.data = outstr, .len = i + 1});
+        k_puts((StringView){.data = outstr + i + 1, .len = 31 - i});
         return 0;
 }
 
@@ -71,6 +70,8 @@ int k_printf(StringView format, ...)
                         break;
 
                 char specfier = format.data[i++];
+                if (isdigit(specfier)) {
+                }
 
                 switch (specfier) {
                 case 'c':
@@ -100,12 +101,6 @@ int k_printf(StringView format, ...)
         va_end(args);
 
         return 0;
-}
-
-#define isdigit isdigit_
-inline bool isdigit_(char c)
-{
-        return (c > '0' && c <= '9');
 }
 
 /* returns 0 if conversion fails
