@@ -2,13 +2,17 @@
 
 #include <stddef.h>
 
-static inline size_t strlen(const char *str)
+static inline size_t kstrlen(const char *str)
 {
         size_t len = 0;
         while (str[len])
                 len++;
         return len;
 }
+
+#ifndef TEST_MODE
+#define strlen kstrlen
+#endif
 
 typedef struct {
         const char *data;
@@ -19,5 +23,5 @@ typedef struct {
 
 static inline StringView sv(const char *cstr)
 {
-        return (StringView){.data = cstr, .len = strlen(cstr)};
+        return (StringView){.data = cstr, .len = kstrlen(cstr)};
 }

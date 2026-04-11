@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include "string.h"
+#include "kstring.h"
 
 void terminal_initialize(void);
 void vga_write_string_view(StringView sv);

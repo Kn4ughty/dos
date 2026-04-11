@@ -1,8 +1,9 @@
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 
-#include "stdio.h"
+#include "kstdio.h"
 
 uint32_t rol(uint32_t value, uint32_t count)
 {
@@ -40,7 +41,7 @@ int printbasen(uint32_t input, uint8_t base)
  * `printf("%#05x\n", 0x1f)` -> " 0x1f"
  *
  */
-int printf_(StringView format, ...)
+int k_printf(StringView format, ...)
 {
         va_list args;
         va_start(args, format);
@@ -89,7 +90,8 @@ int printf_(StringView format, ...)
         return 0;
 }
 
-inline bool isdigit(char c)
+#define isdigit isdigit_
+inline bool isdigit_(char c)
 {
         return (c > '0' && c <= '9');
 }
@@ -98,18 +100,16 @@ inline bool isdigit(char c)
  * input must be base 10
  * assumes input is already trimmed to be just the number part
  */
-int atoi(StringView input)
+int k_atoi(StringView input)
 {
         int output = 0;
-        int place_value = 1;
         for (size_t i = 0; i < input.len; i++) {
                 char c = input.data[i];
                 if (!isdigit(c)) {
                         return 0;
                 }
                 int digit = c - '0';
-                output += digit * place_value;
-                place_value *= 10;
+                output = (output * 10) + digit;
         }
 
         return output;

@@ -2,7 +2,8 @@
 
 #include <stdbool.h>
 
-#include "string.h"
+#include "kstdio.h"
+#include "kstring.h"
 
 bool init_serial();
 void serial_write_char(char a);
