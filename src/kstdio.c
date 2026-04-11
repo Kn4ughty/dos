@@ -18,7 +18,12 @@ inline bool isdigit_(char c)
 
 // int printbasen(uint32_t input, uint8_t base, int padding)
 int printbasen(uint32_t input, uint8_t base)
+
 {
+        if (input == 0) {
+                k_putchar('0');
+        }
+
         if (base > 16 || base < 2) {
                 // cannot print base larger than 16 (for now)!
                 // base 1 is also not supported lol (tally marks)

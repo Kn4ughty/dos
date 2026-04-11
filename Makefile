@@ -55,7 +55,7 @@ test: $(TEST_BINS)
 		echo "running $$test..";\
 		./$$test || exit 1; \
 	done
-	@echo "All tests passed!"
+	@printf "\x1b[32mAll tests passed!\x1b[0m\n"
 
 run: $(ISO)
 	# qemu-system-i386 -monitor stdio -m 256 -cdrom build/myos.iso

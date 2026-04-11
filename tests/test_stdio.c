@@ -30,6 +30,10 @@ TEST test_printf()
         ASSERT_STR_EQ("t: 123", mock_buffer);
 
         reset_mock_putchar();
+        k_printf(sv("%d"), 0);
+        ASSERT_STR_EQ("0", mock_buffer);
+
+        reset_mock_putchar();
         k_printf(sv("hex: %X"), 0xF123);
         ASSERT_STR_EQ("hex: F123", mock_buffer);
 
