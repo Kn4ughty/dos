@@ -1,5 +1,4 @@
-#ifndef STRING_H
-#define STRING_H
+#pragma once
 
 #include <stddef.h>
 
@@ -21,5 +20,3 @@ static inline StringView sv(const char *cstr)
 {
         return (StringView){.data = cstr, .len = strlen(cstr)};
 }
-
-#endif

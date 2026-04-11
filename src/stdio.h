@@ -1,5 +1,4 @@
-#ifndef STDIO_H
-#define STDIO_H
+#pragma once
 
 #define VGA_OUTPUT
 
@@ -47,5 +46,3 @@ void printbin32(uint32_t input);
             int16_t: printbin16,                                               \
             uint32_t: printbin32,                                              \
             int32_t: printbin32)(T)
-
-#endif

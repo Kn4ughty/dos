@@ -1,5 +1,4 @@
-#ifndef PRINT_VGA_H
-#define PRINT_VGA_H
+#pragma once
 
 #include <stdint.h>
 
@@ -8,5 +7,3 @@
 void terminal_initialize(void);
 void vga_write_string_view(StringView sv);
 void vga_putchar(char c);
-
-#endif
