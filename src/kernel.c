@@ -94,7 +94,7 @@ void kernel_main(BootInformationFormat *info)
         init_serial();
 
         // printhex((uint32_t)info);
-        // puts(SV_LIT("\n"));
+        // puts(SV("\n"));
         // printhex(info->flags);
 
         uint32_t flags = info->flags;
@@ -105,8 +105,8 @@ void kernel_main(BootInformationFormat *info)
 
         // uint8_t *mmap_ptr = (uint8_t *)info->mmap_addr;
 
-        puts(SV_LIT("Memory map flag is set!\n"));
-        puts(SV_LIT("\n"));
+        puts(SV("Memory map flag is set!\n"));
+        puts(SV("\n"));
 
         uint32_t total_processed = 0;
         uint8_t *mmap_ptr = (uint8_t *)(uintptr_t)info->mmap_addr;
@@ -118,16 +118,15 @@ void kernel_main(BootInformationFormat *info)
 
                 // while (total_processed < 3) {
                 MmapEntry *entry = (MmapEntry *)(mmap_ptr);
-                puts(SV_LIT("t: "));
-                printhex((uint32_t)entry->type);
+                // puts(SV("t: "));
+                // printhex32((uint32_t)entry->type);
+                printf(SV("t: %d"), entry->type);
 
-                puts(SV_LIT(" len: 0x"));
-                printhex((uint32_t)entry->length);
+                printf(SV(" len: 0x%x"), entry->length);
 
-                puts(SV_LIT(" base_addr: 0x"));
-                printhex((uint32_t)entry->base_addr);
+                printf(SV(" base_addr: 0x%x"), entry->base_addr);
 
-                puts(SV_LIT("\n"));
+                puts(SV("\n"));
                 // printhex(mmap->length);
                 // break;
                 uint32_t size = entry->size + sizeof(entry->size);

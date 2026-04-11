@@ -1,4 +1,5 @@
 
+#include <stdarg.h>
 #include <stdint.h>
 
 #include "stdio.h"
@@ -8,51 +9,108 @@ uint32_t rol(uint32_t value, uint32_t count)
         return (value << count) | (value >> (32 - count));
 }
 
-void printhex(uint32_t input)
+int printbasen(uint32_t input, uint8_t base)
 {
-        const char *hexstr = "0123456789ABCDEF";
-        char outstr[] = "00000000";
-        for (int i = 0; i < 8; i++) {
-                int idx =
-                    rol(input, 4 * (i + 1)) & 0x0F; // get new rightmost nibble
-                char c = hexstr[idx];
-                outstr[i] = c;
+        if (base > 16 || base == 0) {
+                // cannot print base larger than 16!
+                return -1;
         }
-        puts(sv(outstr));
+        StringView base_str = sv("0123456789ABCDEF");
+        base_str.len = base;
+
+        char outstr[32]; // max needed
+        int i = 0;
+        while (input) {
+                outstr[i] = base_str.data[input % base];
+                input /= base;
+                i++;
+        }
+
+        puts((StringView){.data = outstr, .len = i});
+        return 0;
 }
 
-void printbin8(uint8_t input)
+/*
+ * # Printing Hex
+ * `printf("%#05x\n", 0x1f)` -> 0x01f
+ * > print in hex (x), with format specfier (#) with length of 5 characters
+ * with 0 prefixing.
+ * I will support either 0 prefixing or space prefixing.
+ * space prefixing spaces out the entire thing. output would become:
+ * `printf("%#05x\n", 0x1f)` -> " 0x1f"
+ *
+ */
+int printf_(StringView format, ...)
 {
-        const char *binstr = "01";
-        char outstr[8];
-        for (int i = 0; i < 8; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[7 - i] = c;
+        va_list args;
+        va_start(args, format);
+        // char buffer[1];
+        //
+
+        size_t i = 0;
+        while (i < format.len) {
+                char c = format.data[i++];
+
+                if (c != '%') {
+                        putchar(c);
+                        continue;
+                }
+
+                if (i >= format.len)
+                        break;
+
+                char specfier = format.data[i++];
+
+                switch (specfier) {
+                case 'c':
+                        putchar((char)va_arg(args, int));
+                        break;
+                case '0':
+                        // need to prefix output string with 0's
+                case 'x':
+                        printbasen(va_arg(args, uint32_t), 16);
+                        break;
+                case 'd':
+                        printbasen(va_arg(args, uint32_t), 10);
+                        break;
+                case '%':
+                        putchar('%');
+                        break;
+                default:
+                        // unknown specfier
+                        putchar('%');
+                        putchar(specfier);
+                        break;
+                }
         }
-        puts(sv(outstr));
+
+        va_end(args);
+
+        return 0;
 }
 
-void printbin16(uint16_t input)
+inline bool isdigit(char c)
 {
-        const char *binstr = "01";
-        char outstr[16];
-        for (int i = 0; i < 16; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[15 - i] = c;
-        }
-        puts(sv(outstr));
+        return (c > '0' && c <= '9');
 }
 
-void printbin32(uint32_t input)
+/* returns 0 if conversion fails
+ * input must be base 10
+ * assumes input is already trimmed to be just the number part
+ */
+int atoi(StringView input)
 {
-        const char *binstr = "01";
-        char outstr[32];
-        for (int i = 0; i < 32; i++) {
-                int idx = (input >> i) & 1;
-                char c = binstr[idx];
-                outstr[31 - i] = c;
+        int output = 0;
+        int place_value = 1;
+        for (size_t i = 0; i < input.len; i++) {
+                char c = input.data[i];
+                if (!isdigit(c)) {
+                        return 0;
+                }
+                int digit = c - '0';
+                output += digit * place_value;
+                place_value *= 10;
         }
-        puts(sv(outstr));
+
+        return output;
 }

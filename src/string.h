@@ -14,7 +14,8 @@ typedef struct {
         const char *data;
         size_t len;
 } StringView;
-#define SV_LIT(S) (StringView){.data = S, .len = sizeof(S) - 1}
+// Use only for string literals.
+#define SV(S) (StringView){.data = S, .len = sizeof(S) - 1}
 
 static inline StringView sv(const char *cstr)
 {
