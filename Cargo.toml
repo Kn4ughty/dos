@@ -5,8 +5,12 @@ edition = "2024"
 
 [[bin]]
 name = "os"
-test = true
+test = false
 bench = false
+
+[[test]]
+name = "should_panic"
+harness = false
 
 [dependencies]
 bootloader = "0.9"
