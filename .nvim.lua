@@ -3,7 +3,7 @@ vim.api.nvim_create_autocmd("BufWritePost", {
     command = "silent make | cwindow"
 })
 
-require('lspconfig').clangd.setup({
+vim.lsp.config().clangd.setup({
     cmd = {
         "clangd",
         "--query-driver=i686-elf-gcc",

@@ -17,5 +17,6 @@ in
     packages = with pkgs; [
       toolchain
       cargo-bootimage
+      rust-analyzer
     ];
 }
