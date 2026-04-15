@@ -4,13 +4,20 @@
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
-use os::println;
+use os::{println, vga_println};
 
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    println!("Hello world!");
+    os::init();
+    vga_println!("Hello world!");
+
+    // fn stack_overflow() {
+    //     stack_overflow()
+    // }
+    //
+    // stack_overflow();
 
     #[cfg(test)]
     test_main();

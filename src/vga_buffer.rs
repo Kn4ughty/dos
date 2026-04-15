@@ -135,12 +135,12 @@ lazy_static! {
 }
 
 #[macro_export]
-macro_rules! print {
+macro_rules! vga_print {
     ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
 }
 
 #[macro_export]
-macro_rules! println {
+macro_rules! vga_println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
@@ -153,28 +153,28 @@ pub fn _print(args: core::fmt::Arguments) {
 
 #[test_case]
 fn test_println_simple() {
-    println!("test_println_simple output");
+    vga_println!("test_println_simple output");
 }
 
 #[test_case]
 fn test_println_many() {
     for _ in 0..200 {
-        println!("test_println_many output");
+        vga_println!("test_println_many output");
     }
 }
 
 #[test_case]
 fn test_println_longgg() {
-    println!(
+    vga_println!(
         "test_println_longgg output very long line of text that is sure to take up more than one line on the display, and hence test if text wrapping does not panic"
     );
 }
 
 #[test_case]
 fn test_println_appear() {
-    println!(); // So that a print!() invocation cannot mess up the logic.
+    vga_println!(); // So that a print!() invocation cannot mess up the logic.
     let s = "FLAG";
-    println!("{}", s);
+    vga_println!("{}", s);
     for (i, c) in s.chars().enumerate() {
         let screen_char = WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i].read();
         assert_eq!(char::from(screen_char.ascii_character), c);

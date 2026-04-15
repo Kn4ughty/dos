@@ -3,12 +3,28 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
+#![feature(abi_x86_interrupt)]
 
 use core::panic::PanicInfo;
 
+pub mod interrupts;
 pub mod serial;
 pub mod vga_buffer;
 mod volatile;
+
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! println {
+    () => {($crate::vga_print!("\n")); ($crate::serial_print!("\n"))};
+    ($($arg:tt)*) => {
+        ($crate::vga_print!("{}\n", format_args!($($arg)*)));
+        ($crate::serial_print!("{}\n", format_args!($($arg)*)));
+    };
+}
 
 pub trait Testable {
     fn run(&self) -> ();
@@ -64,9 +80,14 @@ fn panic(info: &PanicInfo) -> ! {
     test_panic_handler(info)
 }
 
+pub fn init() {
+    interrupts::init_idt();
+}
+
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
+    init();
     test_main();
 
     #[allow(clippy::empty_loop)]
