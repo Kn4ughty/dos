@@ -9,7 +9,7 @@ lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
         let mut idt = InterruptDescriptorTable::new();
         idt.breakpoint.set_handler_fn(breakpoint_handler);
-        // Safety. double_fault_ist_index is correct
+        // SAFETY. double_fault_ist_index is correct as we source directly from gdt
         unsafe {
             idt.double_fault
                 .set_handler_fn(double_fault_handler)
