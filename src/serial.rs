@@ -58,10 +58,12 @@ impl Writer {
         return Ok(());
     }
 
+    #[allow(unused)]
     fn serial_received(&self) -> bool {
         return (inb(self.port + 5) & 1) == 1;
     }
 
+    #[allow(unused)]
     fn read_serial(&self) -> char {
         while !self.serial_received() {
             core::hint::spin_loop();
