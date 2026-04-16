@@ -7,10 +7,11 @@
 
 use core::panic::PanicInfo;
 
+pub mod gdt;
 pub mod interrupts;
 pub mod serial;
 pub mod vga_buffer;
-mod volatile;
+pub mod volatile;
 
 #[macro_export]
 macro_rules! print {
@@ -55,7 +56,8 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
         // todo. Move to port module
         asm!("out dx, eax", in("eax") exit_code as u32, in("dx") 0xf4u16);
     }
-    // unreachable!(); // Qemu exits before here.
+    // Problem with using unreachable!() here is that the panic handler could call exit_qemu, leading
+    // to an infinite loop of unreachable!()
     loop {}
 }
 
@@ -81,6 +83,7 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 pub fn init() {
+    gdt::init();
     interrupts::init_idt();
 }
 
