@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 use spin::Mutex;
 
+use crate::port::Port;
 use crate::volatile::Volatile;
 
 const BUFFER_HEIGHT: usize = 25;
@@ -11,6 +12,7 @@ const BUFFER_WIDTH: usize = 80;
 #[repr(u8)]
 pub enum Colour {
     Black = 0,
+    Blue = 1,
     White = 15,
 }
 
@@ -37,9 +39,48 @@ struct Buffer {
     chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
+// See http://www.osdever.net/FreeVGA/vga/textcur.htm for more
+struct Cursor {
+    address_register: Port<u8>,
+    data_register: Port<u8>,
+}
+
+impl Cursor {
+    fn new() -> Cursor {
+        Cursor {
+            address_register: Port::new(0x3D4),
+            data_register: Port::new(0x3D5),
+        }
+    }
+
+    #[allow(unused)]
+    fn disable(&mut self) {
+        // Safety! is ok
+        unsafe {
+            self.address_register.write(0x0A);
+            self.data_register.write(0x10);
+        }
+    }
+
+    /// Implicitly also re-enables the cursor
+    fn set_position(&mut self, row: usize, col: usize) {
+        // she'll be right
+        let index: u16 = (BUFFER_WIDTH as u16) * (row as u16) + (col as u16);
+        unsafe {
+            self.address_register.write(0x0F);
+            // Will always be okay since yk &0xFF
+            self.data_register.write((index & 0xFF) as u8);
+
+            self.address_register.write(0x0E);
+            self.data_register.write(((index >> 8) & 0xFF) as u8);
+        }
+    }
+}
+
 pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
+    cursor: Cursor,
     buffer: &'static mut Buffer,
 }
 
@@ -49,10 +90,11 @@ impl Writer {
         let mut writer = Writer {
             column_position: 0,
             color_code: ColorCode::new(Colour::White, Colour::Black),
+            cursor: Cursor::new(),
             buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
         };
-
         writer.clear_screen();
+        // writer.cursor.disable();
 
         writer
     }
@@ -118,6 +160,8 @@ impl Writer {
                 self.write_byte(0xfe);
             }
         }
+        self.cursor
+            .set_position(BUFFER_HEIGHT - 1, self.column_position)
     }
 }
 
