@@ -3,6 +3,8 @@ use spin::Mutex;
 
 use crate::port::Port;
 
+/// See https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port for more info
+
 pub struct Writer {
     p_read_write: Port<u8>,
     p_interrupt: Port<u8>,
