@@ -9,6 +9,7 @@ use core::panic::PanicInfo;
 
 pub mod gdt;
 pub mod interrupts;
+pub mod port;
 pub mod serial;
 pub mod vga_buffer;
 pub mod volatile;
@@ -50,14 +51,17 @@ pub enum QemuExitCode {
 }
 
 pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
-    use core::arch::asm;
+    use crate::port::PortWriteOnly;
 
-    unsafe {
-        // todo. Move to port module
-        asm!("out dx, eax", in("eax") exit_code as u32, in("dx") 0xf4u16);
-    }
+    let mut qemu_port = PortWriteOnly::<u32>::new(0xf4);
+
+    // Safety.
+    // Qemu port is correct so it is okay
+    unsafe { qemu_port.write(exit_code as u32) }
+
     // Problem with using unreachable!() here is that the panic handler could call exit_qemu, leading
     // to an infinite loop of unreachable!()
+    // This location _should_ be unreachable.
     loop {}
 }
 
