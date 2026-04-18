@@ -13,11 +13,25 @@ const BUFFER_WIDTH: usize = 80;
 pub enum Colour {
     Black = 0,
     Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Magenta = 5,
+    Brown = 6,
+    LightGray = 7,
+    DarkGray = 8,
+    LightBlue = 9,
+    LightGreen = 10,
+    LightCyan = 11,
+    LightRed = 12,
+    Pink = 13,
+    Yellow = 14,
     White = 15,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
+/// Contains foreground and background colours
 struct ColorCode(u8);
 
 impl ColorCode {
@@ -25,7 +39,7 @@ impl ColorCode {
         ColorCode((background as u8) << 4 | (foreground as u8))
     }
 }
-const WHITE_ON_BLACK: ColorCode = ColorCode::new(Colour::White, Colour::Black);
+const TEXT_COLOUR: ColorCode = ColorCode::new(Colour::White, Colour::Black);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)] // Guarantees the ordering of fields
@@ -85,16 +99,15 @@ pub struct Writer {
 }
 
 impl Writer {
-    #[allow(unused)]
     fn new() -> Writer {
         let mut writer = Writer {
             column_position: 0,
-            color_code: ColorCode::new(Colour::White, Colour::Black),
+            color_code: TEXT_COLOUR,
             cursor: Cursor::new(),
+            // Safety. This is the correct address for the vga buffer
             buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
         };
         writer.clear_screen();
-        // writer.cursor.disable();
 
         writer
     }
@@ -108,8 +121,6 @@ impl Writer {
             self.new_line();
         }
 
-        // let row = BUFFER_HEIGHT - 1;
-        // let col =
         self.buffer.chars[BUFFER_HEIGHT - 1][self.column_position].write(ScreenChar {
             ascii_character: byte,
             color_code: self.color_code,
@@ -118,8 +129,6 @@ impl Writer {
     }
 
     fn new_line(&mut self) {
-        /* todo */
-        // self.row_position += 1;
         for row in 1..BUFFER_HEIGHT {
             for col in 0..BUFFER_WIDTH {
                 let character = self.buffer.chars[row][col].read();
@@ -133,7 +142,7 @@ impl Writer {
     fn clear_row(&mut self, row: usize) {
         let blank = ScreenChar {
             ascii_character: b' ',
-            color_code: WHITE_ON_BLACK,
+            color_code: TEXT_COLOUR,
         };
         for col in 0..BUFFER_WIDTH {
             self.buffer.chars[row][col].write(blank);
@@ -143,7 +152,7 @@ impl Writer {
     fn clear_screen(&mut self) {
         let blank = ScreenChar {
             ascii_character: b' ',
-            color_code: WHITE_ON_BLACK,
+            color_code: TEXT_COLOUR,
         };
         for col in 0..BUFFER_WIDTH {
             for row in 0..BUFFER_HEIGHT {
@@ -154,9 +163,11 @@ impl Writer {
 
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
-            if matches!(byte, 0x20..=0x7e | b'\n') {
+            // check if it is printable ascii
+            if matches!(byte, b' '..=b'~' | b'\n') {
                 self.write_byte(byte);
             } else {
+                // Block character
                 self.write_byte(0xfe);
             }
         }
@@ -219,10 +230,10 @@ fn test_println_longgg() {
 
 #[test_case]
 fn test_println_appear() {
-    vga_println!(); // So that a print!() invocation cannot mess up the logic.
+    vga_println!(); // So that a print!() call cannot mess up the logic.
     let s = "FLAG";
     vga_println!("{}", s);
-    // Disable interrupts to prevent deadlocking
+    // Disable interrupts to prevent other text from being printed to the screen
     x86_64::instructions::interrupts::without_interrupts(|| {
         for (i, c) in s.chars().enumerate() {
             let screen_char = WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i].read();
