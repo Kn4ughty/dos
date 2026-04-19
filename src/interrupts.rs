@@ -19,6 +19,7 @@ pub static PICS: spin::Mutex<ChainedPics> =
 #[repr(u8)]
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
+    Keyboard,
 }
 
 impl InterruptIndex {
@@ -40,6 +41,7 @@ lazy_static! {
         }
         use core::ops::IndexMut;
         idt.index_mut(InterruptIndex::Timer.as_u8()).set_handler_fn(timer_interrupt_handler);
+        idt.index_mut(InterruptIndex::Keyboard.as_u8()).set_handler_fn(keyboard_interrupt_handler);
         idt
     };
 }
@@ -57,11 +59,49 @@ fn test_breakpoint_exception() {
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    vga_print!(".");
+    // vga_print!(".");
 
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer.as_u8())
+    }
+}
+
+extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
+    use spin::Mutex;
+
+    use crate::port::Port;
+
+    // Lazy static inside a function??
+    lazy_static! {
+        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
+            Mutex::new(Keyboard::new(
+                ScancodeSet1::new(),
+                layouts::Us104Key,
+                HandleControl::Ignore
+            ));
+    }
+
+    let mut port = Port::new(0x60); // Port of PS/2 controller
+    let scancode: u8 = unsafe { port.read() };
+
+    let mut keyboard = KEYBOARD.lock();
+
+    // https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
+
+    if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+        if let Some(key) = keyboard.process_keyevent(key_event) {
+            match key {
+                DecodedKey::Unicode(c) => vga_print!("{}", c),
+                DecodedKey::RawKey(raw) => vga_print!("{:?}", raw),
+            }
+        }
+    }
+
+    unsafe {
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8())
     }
 }
 
