@@ -66,6 +66,14 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
     loop {}
 }
 
+pub fn hlt_loop() -> ! {
+    use core::arch::asm;
+    loop {
+        // Safe since it cannot possibly compromise memory safety
+        unsafe { asm!("hlt") }
+    }
+}
+
 pub fn test_runner(tests: &[&dyn Testable]) {
     serial_println!("Running {} tests", tests.len());
     for test in tests {
@@ -100,6 +108,5 @@ pub extern "C" fn _start() -> ! {
     init();
     test_main();
 
-    #[allow(clippy::empty_loop)]
-    loop {}
+    hlt_loop();
 }
