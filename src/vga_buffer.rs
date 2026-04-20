@@ -167,8 +167,12 @@ impl Writer {
             if matches!(byte, b' '..=b'~' | b'\n') {
                 self.write_byte(byte);
             } else {
-                // Block character
-                self.write_byte(0xfe);
+                // Scary recursion
+                let r = write!(self, "0x{:02x}", byte);
+                if let Err(e) = r {
+                    use crate::serial_println;
+                    serial_println!("WRITE UNKNOWN CHARACTER ERROR: {:?}", e);
+                }
             }
         }
         self.cursor
