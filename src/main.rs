@@ -5,13 +5,30 @@
 #![reexport_test_harness_main = "test_main"]
 
 use os::{println, vga_println};
+use x86_64::VirtAddr;
 
 use core::panic::PanicInfo;
 
-#[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+bootloader::entry_point!(kernel_main);
+
+fn kernel_main(boot_info: &'static bootloader::BootInfo) -> ! {
     os::init();
     vga_println!("Hello world!");
+
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+
+    let addresses = [
+        0xb8000,
+        0x201008,
+        0x0100_0020_1a10,
+        boot_info.physical_memory_offset,
+    ];
+
+    for addr in addresses {
+        let virt = VirtAddr::new(addr);
+        let phys = unsafe {os::memory::translate_addr(virt, phys_mem_offset)};
+        println!("{:?} -> {:?}", virt, phys);
+    }
 
     #[cfg(test)]
     test_main();
