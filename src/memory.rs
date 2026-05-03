@@ -1,6 +1,21 @@
-use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTable};
+use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
+use x86_64::{
+    PhysAddr, VirtAddr,
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB,
+    },
+};
 
 use core::panic;
+
+/// Safety
+/// This function must be called only once to avoid aliasing `&mut`
+pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
+    unsafe {
+        let level_4_pagetable = active_level_4_table(physical_memory_offset);
+        OffsetPageTable::new(level_4_pagetable, physical_memory_offset)
+    }
+}
 
 /// Returns a mutable reference to the active level 4 table.
 ///
@@ -8,7 +23,7 @@ use core::panic;
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`. Also, this function must be only called once
 /// to avoid aliasing `&mut` references (which is undefined behavior).
-pub unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
+unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
     use x86_64::registers::control::Cr3;
 
     let (level_4_pagetable, _) = Cr3::read();
@@ -51,16 +66,80 @@ fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Opt
     for &index in &table_indexes {
         let virt = physical_memory_offset + frame.start_address().as_u64();
         let table_ptr: *const PageTable = virt.as_ptr();
-        let table = unsafe {&*table_ptr };
+        let table = unsafe { &*table_ptr };
 
         let entry = &table[index];
         frame = match entry.frame() {
             Ok(frame) => frame,
             Err(FrameError::FrameNotPresent) => return None,
-            Err(FrameError::HugeFrame) => panic!("Huge pages not supported. How'd that get there")
+            Err(FrameError::HugeFrame) => panic!("Huge pages not supported. How'd that get there"),
         };
     }
 
     Some(frame.start_address() + u64::from(addr.page_offset()))
+}
 
+type FrameIterator = impl Iterator<Item = PhysFrame>;
+
+// pub struct BootInfoFrameAllocator<I>
+// where
+//     I: Iterator<Item = PhysFrame>,
+// {
+//     memory_map: &'static MemoryMap,
+//     next: usize,
+//     iterator: I,
+// }
+
+pub struct BootInfoFrameAllocator {
+    next: usize,
+    iterator: FrameIterator,
+}
+
+impl BootInfoFrameAllocator {
+    /// Create a FrameAllocator from the passed memory mjap
+    ///
+    /// This function is unsafe because the caller must guarantee that the passed memory map is
+    /// valid. The main requirement is that all frames that are mared `USABLE` in it are really
+    /// unused.
+    pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
+        BootInfoFrameAllocator {
+            next: 0,
+            iterator: Self::useable_frames(memory_map),
+        }
+    }
+
+    #[define_opaque(FrameIterator)]
+    fn useable_frames(memory_map: &'static MemoryMap) -> FrameIterator {
+        let regions = memory_map.iter();
+        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096)); // 4kiB pages
+        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+    }
+}
+
+unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
+        let frame = self.iterator.nth(self.next);
+        self.next += 1;
+        frame
+    }
+}
+
+pub fn create_example_mapp(
+    page: Page,
+    mapper: &mut OffsetPageTable,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) {
+    use x86_64::structures::paging::PageTableFlags as Flags;
+
+    let frames = PhysFrame::containing_address(PhysAddr::new(0xb8000));
+    let flags = Flags::PRESENT | Flags::WRITABLE; // u64
+    //
+    let map_to_result = unsafe {
+        // FIXME: This is not safe since it will alias &mut. Only for testing
+        mapper.map_to(page, frames, flags, frame_allocator)
+    };
+    map_to_result.expect("map_to failed").flush();
 }

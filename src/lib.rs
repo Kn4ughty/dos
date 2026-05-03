@@ -4,6 +4,7 @@
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
+#![feature(type_alias_impl_trait)]
 
 use core::panic::PanicInfo;
 
@@ -86,7 +87,7 @@ pub fn test_runner(tests: &[&dyn Testable]) {
 
 pub fn test_panic_handler(info: &PanicInfo) -> ! {
     serial_println!("[failed]\n");
-    serial_println!("{}\n", info);
+    serial_println!("{:#?}\n", info);
     exit_qemu(QemuExitCode::Failed);
 }
 
