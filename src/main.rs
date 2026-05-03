@@ -4,7 +4,10 @@
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
-use os::{memory, println, vga_println};
+extern crate alloc;
+use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
+
+use os::{allocator, memory, println, vga_println};
 use x86_64::{VirtAddr, structures::paging::Page};
 
 use core::{panic::PanicInfo, u64};
@@ -20,13 +23,19 @@ fn kernel_main(boot_info: &'static bootloader::BootInfo) -> ! {
     let mut frame_allocator =
         unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-    let page = Page::containing_address(VirtAddr::new(0xdeadbeef000));
-    memory::create_example_mapp(page, &mut mapper, &mut frame_allocator);
+    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    let page_ptr: *mut u64 = page.start_address().as_mut_ptr();
-    unsafe {
-        page_ptr.offset(250).write_volatile(0x_f021_f077_f065_f04e);
-    }
+    let reference_counted = Rc::new(vec![1, 2, 3]);
+    let cloned_reference = reference_counted.clone();
+    println!(
+        "current reference count is {}",
+        Rc::strong_count(&cloned_reference)
+    );
+    core::mem::drop(reference_counted);
+    println!(
+        "reference count is {} now",
+        Rc::strong_count(&cloned_reference)
+    );
 
     #[cfg(test)]
     test_main();

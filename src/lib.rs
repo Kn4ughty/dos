@@ -6,8 +6,11 @@
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
 
+extern crate alloc;
+
 use core::panic::PanicInfo;
 
+pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
