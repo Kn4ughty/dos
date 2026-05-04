@@ -18,6 +18,8 @@ fn kernel_main(boot_info: &'static bootloader::BootInfo) -> ! {
     os::init();
     vga_println!("Hello world!");
 
+    vga_println!("{:?}", boot_info);
+
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
     let mut frame_allocator =
@@ -27,12 +29,12 @@ fn kernel_main(boot_info: &'static bootloader::BootInfo) -> ! {
 
     let reference_counted = Rc::new(vec![1, 2, 3]);
     let cloned_reference = reference_counted.clone();
-    println!(
+    vga_println!(
         "current reference count is {}",
         Rc::strong_count(&cloned_reference)
     );
     core::mem::drop(reference_counted);
-    println!(
+    vga_println!(
         "reference count is {} now",
         Rc::strong_count(&cloned_reference)
     );
@@ -40,7 +42,7 @@ fn kernel_main(boot_info: &'static bootloader::BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    println!("Did not crash. End of main");
+    vga_println!("Did not crash. End of main");
     os::hlt_loop();
 }
 

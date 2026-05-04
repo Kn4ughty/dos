@@ -10,24 +10,31 @@ use alloc::alloc::{GlobalAlloc, Layout};
 
 use core::ptr::null_mut;
 
+pub mod fixed_size_block;
+
+use fixed_size_block::FixedSizeBlockAllocator;
+
 pub const HEAP_START: usize = 0x_4444_4444_0000; // Easily recognisable virtual address
 pub const HEAP_SIZE: usize = 100 * 1024; // 100KiB
 
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
-// pub struct Dummy;
-//
-// unsafe impl GlobalAlloc for Dummy {
-//     unsafe fn alloc(&self, _layout: Layout) -> *mut u8 {
-//         null_mut() // Return null. This means there is an allocation error
-//     }
-//
-//     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
-//         // Since we only return errors, dealloc shouldnt be done on a null ptr
-//         panic!("Dealloc should never be called")
-//     }
-// }
+pub struct Locked<A> {
+    inner: spin::Mutex<A>,
+}
+
+impl<A> Locked<A> {
+    pub const fn new(inner: A) -> Self {
+        Locked {
+            inner: spin::Mutex::new(inner),
+        }
+    }
+
+    pub fn lock(&self) -> spin::MutexGuard<A> {
+        self.inner.lock()
+    }
+}
 
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,
@@ -56,4 +63,20 @@ pub fn init_heap(
     }
 
     Ok(())
+}
+
+/// Align the given address `addr` upwards to alignment `align`.
+///
+/// Requires that `align` is a power of two.
+fn align_up(addr: usize, align: usize) -> usize {
+    // This code is equivalent to
+    /*
+        let remainder = addr % align;
+        if remainder == 0 {
+            addr // addr already aligned
+        } else {
+            addr - remainder + align
+        }
+    */
+    (addr + align - 1) & !(align - 1)
 }
