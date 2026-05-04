@@ -3,6 +3,10 @@ name = "os"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "os"
+crate-type = ["rlib", "staticlib"]
+
 [[bin]]
 name = "os"
 test = false
@@ -17,7 +21,7 @@ name = "stack_overflow"
 harness = false
 
 [dependencies]
-bootloader = { version = "0.9", features = ["map_physical_memory"] }
+bootloader = {version = "0.9", features = ["map_physical_memory"] }
 spin = "0.5.2"
 x86_64 = "0.15.4"
 pc-keyboard = "0.8.0"
@@ -36,3 +40,4 @@ test-args = [
 run-args = ["-serial", "stdio"]
 test-success-exit-code = 33
 test-timeout = 300 #seconds
+

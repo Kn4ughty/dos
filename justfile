@@ -1,6 +1,8 @@
 arch := "x86_64"
 kernel := "build/kernel-" + arch + ".bin"
 iso_file := "build/os-" + arch + ".iso"
+target := arch+ "-target"
+rust_os := "target/" + target + "/debug/libos.a"
 
 linker_script := "src/arch/" + arch + "/linker.ld"
 grub_cfg := "src/arch/" + arch+ "/grub.cfg"
@@ -9,6 +11,7 @@ all: iso
 
 clean:
     rm -rf build
+    cargo clean
 
 run: iso
     qemu-system-x86_64 -cdrom {{iso_file}}
@@ -21,7 +24,9 @@ iso: kernel
     @rm -rf build/isofiles # required?
 
 kernel: (compile-asm)
-    ld -n -T {{linker_script}} -o {{kernel}} build/arch/{{arch}}/*.o
+    cargo build --lib
+    # todo. Remove no warn
+    ld -n --no-warn-rwx-segments -T {{linker_script}} -o {{kernel}} build/arch/{{arch}}/*.o {{rust_os}}
 
 [private]
 compile-asm:

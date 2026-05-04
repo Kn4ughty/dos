@@ -1,8 +1,9 @@
-global start
+global _start
+extern long_mode_start
 
 section .text
 bits 32
-start:
+_start:
     mov esp, stack_top
 
     call check_multiboot
@@ -12,7 +13,11 @@ start:
     call setup_page_tables
     call enable_paging
 
-    mov dword [0xb8000], 0x2f4b2f4f
+    lgdt [gdt64.pointer]
+
+    jmp gdt64.code:long_mode_start ; jump to 64 bit land
+
+    mov dword [0xb8000], 0x4f554f4E
     hlt
 
 check_multiboot:
@@ -93,7 +98,7 @@ setup_page_tables:
     ; map each p2 entry to huge 2MiB page
     mov ecx, 0 ; counter
 .map_p2_table:
-    mov eax, 0x20000 ; 2MiB
+    mov eax, 0x200000 ; 2MiB
     mul ecx
     or eax, 0b10000011 ; present + writable + huge
     mov [p2_table+ecx*8], eax
@@ -129,6 +134,15 @@ error:
     mov byte  [0xb800a], al
     hlt
 
+section .rodata
+gdt64:
+    dq 0
+.code: equ $ - gdt64
+    dq (1<<43) | (1<<44) | (1<<47) | (1<<53)
+.pointer:
+    dw $ - gdt64 - 1
+    dq gdt64
+
 section .bss
 align 4096
 align 4096
@@ -139,5 +153,7 @@ p3_table:
 p2_table:
     resb 4096
 stack_bottom:
-    resb 64 ; Very small!
+    resb 4096 * 4
 stack_top:
+
+section .note.GNU-stack noalloc noexec nowrite progbits

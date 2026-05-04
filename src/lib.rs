@@ -3,22 +3,82 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
-#![feature(abi_x86_interrupt)]
-#![feature(type_alias_impl_trait)]
+// #![feature(abi_x86_interrupt)]
+// #![feature(type_alias_impl_trait)]
 
-extern crate alloc;
+// extern crate alloc;
 
 use core::panic::PanicInfo;
-
-pub mod allocator;
-pub mod gdt;
-pub mod interrupts;
-pub mod memory;
-pub mod pic;
+//
+// // pub mod allocator;
+// pub mod gdt;
+// pub mod interrupts;
+// // pub mod memory;
+// pub mod pic;
 pub mod port;
 pub mod serial;
 pub mod vga_buffer;
 pub mod volatile;
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn _start() -> ! {
+//     kernel_main();
+// }
+
+// fn kernel_main() -> ! {
+// init();
+// vga_println!("Hello world!");
+//
+// vga_println!("{:?}", boot_info);
+//
+// let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+// let mut mapper = unsafe { memory::init(phys_mem_offset) };
+// let mut frame_allocator =
+//     unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+//
+// allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
+//
+// let reference_counted = Rc::new(vec![1, 2, 3]);
+// let cloned_reference = reference_counted.clone();
+// vga_println!(
+//     "current reference count is {}",
+//     Rc::strong_count(&cloned_reference)
+// );
+// core::mem::drop(reference_counted);
+// vga_println!(
+//     "reference count is {} now",
+//     Rc::strong_count(&cloned_reference)
+// );
+//
+// #[cfg(test)]
+// test_main();
+//
+//     vga_println!("Did not crash. End of main");
+//     hlt_loop();
+// }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rust_main() {
+    vga_println!("Hello from rustland!")
+    // let bs = b"hello from rustland!";
+    // let color = 0x
+    //
+    // let buffer_ptr = (0xb8000 + 1988) as *mut _;
+    // unsafe { *buffer_ptr = [0x1f67] };
+}
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn kernel_main() {}
+//
+// #[lang = "eh_personality"]
+// #[unsafe(no_mangle)]
+// pub extern "C" fn eh_personality() {}
+
+// #[lang = "panic_fmt"]
+// #[no_mangle]
+// pub extern "C" fn panic_fmt() -> ! {
+//     loop {}
+// }
 
 #[macro_export]
 macro_rules! print {
@@ -70,7 +130,7 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
     // This location _should_ be unreachable.
     loop {}
 }
-
+//
 pub fn hlt_loop() -> ! {
     use core::arch::asm;
     loop {
@@ -100,20 +160,27 @@ fn panic(info: &PanicInfo) -> ! {
     test_panic_handler(info)
 }
 
-pub fn init() {
-    gdt::init();
-    interrupts::init_idt();
-    unsafe { interrupts::PICS.lock().initialize() };
-    x86_64::instructions::interrupts::enable();
-}
-
-#[cfg(test)]
-bootloader::entry_point!(test_kernel_main);
-
-#[cfg(test)]
-fn test_kernel_main(_boot_info: &'static bootloader::BootInfo) -> ! {
-    init();
-    test_main();
-
+#[cfg(not(test))]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    // println!("{:#?}", info);
     hlt_loop();
 }
+
+// pub fn init() {
+//     gdt::init();
+//     interrupts::init_idt();
+//     unsafe { interrupts::PICS.lock().initialize() };
+//     x86_64::instructions::interrupts::enable();
+// }
+//
+// #[cfg(test)]
+// bootloader::entry_point!(test_kernel_main);
+//
+// #[cfg(test)]
+// fn test_kernel_main(_boot_info: &'static bootloader::BootInfo) -> ! {
+//     init();
+//     test_main();
+//
+//     hlt_loop();
+// }
