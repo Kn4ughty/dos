@@ -18,5 +18,8 @@ in
       toolchain
       cargo-bootimage
       rust-analyzer
+      grub2
+      xorriso
+      just
     ];
 }
