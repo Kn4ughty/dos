@@ -3,22 +3,26 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
-// #![feature(abi_x86_interrupt)]
+#![feature(abi_x86_interrupt)]
 // #![feature(type_alias_impl_trait)]
 
 // extern crate alloc;
 
 use core::panic::PanicInfo;
+
+use crate::multiboot::BootInformationFormat;
 //
 // // pub mod allocator;
-// pub mod gdt;
-// pub mod interrupts;
+pub mod gdt;
+pub mod interrupts;
 // // pub mod memory;
-// pub mod pic;
+pub mod pic;
 pub mod port;
 pub mod serial;
 pub mod vga_buffer;
 pub mod volatile;
+
+pub mod multiboot;
 
 // #[unsafe(no_mangle)]
 // pub extern "C" fn _start() -> ! {
@@ -58,13 +62,19 @@ pub mod volatile;
 // }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_main() {
-    vga_println!("Hello from rustland!")
+pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
+    vga_println!("Hello from rustland!");
+    init();
+
+    let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
+
+    println!("{:?}", bif);
     // let bs = b"hello from rustland!";
     // let color = 0x
     //
     // let buffer_ptr = (0xb8000 + 1988) as *mut _;
     // unsafe { *buffer_ptr = [0x1f67] };
+    hlt_loop();
 }
 
 // #[unsafe(no_mangle)]
@@ -163,16 +173,16 @@ fn panic(info: &PanicInfo) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    // println!("{:#?}", info);
+    println!("{:#?}", info);
     hlt_loop();
 }
 
-// pub fn init() {
-//     gdt::init();
-//     interrupts::init_idt();
-//     unsafe { interrupts::PICS.lock().initialize() };
-//     x86_64::instructions::interrupts::enable();
-// }
+pub fn init() {
+    gdt::init();
+    // interrupts::init_idt();
+    // unsafe { interrupts::PICS.lock().initialize() };
+    // x86_64::instructions::interrupts::enable();
+}
 //
 // #[cfg(test)]
 // bootloader::entry_point!(test_kernel_main);
