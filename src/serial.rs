@@ -15,8 +15,8 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// #Safety.
-    /// Caller mist ensure the port range os valid for a serial UART port.
+    /// Safety.
+    /// Caller must ensure the port, and its range is valid for a serial UART port.
     pub unsafe fn new(port: u16) -> Result<Writer, ()> {
         let mut writer = Writer {
             p_read_write: Port::new(port + 0),

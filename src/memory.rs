@@ -8,6 +8,7 @@ use x86_64::{
 
 use core::panic;
 
+/*
 /// Safety
 /// This function must be called only once to avoid aliasing `&mut`
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
@@ -142,4 +143,26 @@ pub fn create_example_map(
         mapper.map_to(page, frames, flags, frame_allocator)
     };
     map_to_result.expect("map_to failed").flush();
+}
+
+*/
+
+/// Align the given address `addr` upwards to alignment `align`.
+///
+/// Requires that `align` is a power of two.
+pub fn align_up(addr: usize, align: usize) -> usize {
+    debug_assert!((align & (align - 1)) == 0); // check align is power of two.
+    // e.x f(0b1000) = (0b1000 & (0b0111)) == 0 = true
+    // i.e Checks if only one bit is set high
+
+    // This code is equivalent to
+    /*
+        let remainder = addr % align;
+        if remainder == 0 {
+            addr // addr already aligned
+        } else {
+            addr - remainder + align
+        }
+    */
+    (addr + align - 1) & !(align - 1)
 }

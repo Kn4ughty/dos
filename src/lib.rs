@@ -15,7 +15,7 @@ use crate::multiboot::BootInformationFormat;
 // // pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
-// // pub mod memory;
+pub mod memory;
 pub mod pic;
 pub mod port;
 pub mod serial;
@@ -69,11 +69,16 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
 
     println!("{:?}", bif);
+    let bln = bif.get_bootloader_name().name();
+    println!("{:?}", bln);
+
     // let bs = b"hello from rustland!";
     // let color = 0x
     //
     // let buffer_ptr = (0xb8000 + 1988) as *mut _;
     // unsafe { *buffer_ptr = [0x1f67] };
+
+    vga_println!("Finished");
     hlt_loop();
 }
 
