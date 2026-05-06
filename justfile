@@ -11,16 +11,17 @@ all: iso
 
 clean:
     rm -rf build
-    cargo clean
+    # cargo clean
 
 run: iso
-    qemu-system-x86_64 -cdrom {{iso_file}}
+    qemu-system-x86_64 -cdrom {{iso_file}} -serial stdio
 
 iso: kernel
     @mkdir -p build/isofiles/boot/grub
     @cp {{kernel}} build/isofiles/boot/kernel.bin
     @cp {{grub_cfg}} build/isofiles/boot/grub/grub.cfg
     @grub-mkrescue -o {{iso_file}} build/isofiles 2> /dev/null
+    # grub-file --is-x86-multiboot2 {{iso_file}}
     @rm -rf build/isofiles # required?
 
 kernel: (compile-asm)
