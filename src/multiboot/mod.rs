@@ -1,6 +1,7 @@
 // https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html#Boot-information-format
 
-use core::usize;
+use core::mem::size_of;
+use core::ptr;
 
 #[derive(Debug)]
 #[repr(C, align(8))]
@@ -19,6 +20,7 @@ impl BootInformationFormat {
         multiboot
     }
 
+    // TODO. return results
     pub fn get_bootloader_name(&self) -> &BootLoaderName {
         let basic_tag = self
             .tags()
@@ -28,6 +30,17 @@ impl BootInformationFormat {
         // unsafe { core::mem::transmute(basic_tag) }
 
         return unsafe { &*(basic_tag as *const TagHeader as *const BootLoaderName) };
+    }
+
+    pub fn get_memory_map(&self) -> &MemoryMap {
+        let base_tag = self
+            .tags()
+            .find(|t| t.typ == const { TagType::MemoryMap as u32 })
+            .expect("COuld find mem map");
+
+        let mmap = unsafe { &*(base_tag as *const TagHeader as *const MemoryMap) };
+        mmap.validate();
+        mmap
     }
 
     fn tags(&self) -> TagIter {
@@ -88,21 +101,58 @@ enum TagType {
     BootLoaderName = 2,
 }
 
+#[derive(Debug)]
 #[repr(C)]
-struct MemoryMap {
+pub struct MemoryMap {
     typ: u32, // Must equal 6
     size: u32,
-    entry_size: u32, // Size of one entry. size % 8 == 0
+    entry_size: u32,
     entry_version: u32,
-    first_entry: MemoryEntry,
+    // This does not change the size of the struct (because its size is zero) but it does allow for
+    // a marker of where the entries start.
+    entries: [MemoryEntry; 0],
 }
 
 #[repr(C)]
-struct MemoryEntry {
+pub struct MemoryEntry {
     base_addr: u64,
     length: u64, // Size of region in bytes
     typ: u32,
     _reserved: u32,
+}
+
+impl MemoryMap {
+    fn validate(&self) {
+        assert_eq!(self.entry_size % 8, 0);
+        // size is mulitple of entry size
+        assert_eq!(
+            (self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>(),
+            0
+        );
+
+        assert_eq!(size_of::<MemoryEntry>(), self.entry_size as usize); // lol. This is not compatable with the spec.
+    }
+
+    pub fn get_all_entries(&self) -> &[MemoryEntry] {
+        let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
+
+        unsafe {
+            // SAFETY: The entries start right after the end of the struct, as given in the
+            // multiboot spec.
+            core::slice::from_raw_parts(self.entries.as_ptr() as *const MemoryEntry, count)
+        }
+    }
+}
+
+impl core::fmt::Debug for MemoryEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MemoryEntry")
+            // 16 nibbles needed for u64
+            .field("base_addr", &format_args!("{:#X}", self.base_addr))
+            .field("length", &format_args!("{:#X}", self.length))
+            .field("type", &self.typ)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -120,7 +170,7 @@ impl BootLoaderName {
     pub fn name(&self) -> Result<&str, core::str::Utf8Error> {
         unsafe {
             // Offset pointer to start of string
-            let mut ptr = (self as *const Self as *const u8).add(core::mem::size_of::<Self>());
+            let ptr = (self as *const Self as *const u8).add(size_of::<Self>());
 
             let max_len = self.header.size as usize;
 

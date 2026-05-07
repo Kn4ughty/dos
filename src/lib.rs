@@ -72,6 +72,12 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let bln = bif.get_bootloader_name().name();
     println!("{:?}", bln);
 
+    let mmap = bif.get_memory_map();
+    println!("{:?}", mmap);
+
+    let mentry = mmap.get_all_entries();
+    println!("{:#?}", mentry);
+
     // let bs = b"hello from rustland!";
     // let color = 0x
     //
