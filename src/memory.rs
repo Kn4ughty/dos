@@ -8,7 +8,6 @@ use x86_64::{
 
 use core::panic;
 
-/*
 /// Safety
 /// This function must be called only once to avoid aliasing `&mut`
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
@@ -144,8 +143,6 @@ pub fn create_example_map(
     };
     map_to_result.expect("map_to failed").flush();
 }
-
-*/
 
 /// Align the given address `addr` upwards to alignment `align`.
 ///

@@ -3,7 +3,6 @@
 // TODO. Write integration tests for this module
 
 use core::mem::size_of;
-use core::ptr;
 
 #[derive(Debug)]
 #[repr(C, align(8))]
@@ -40,11 +39,10 @@ impl BootInformationFormat {
     }
 
     fn tags(&self) -> TagIter {
-        let t = TagIter {
+        TagIter {
             total_size: self.total_size as usize,
             current: &self.first_tag as *const _,
-        };
-        t
+        }
     }
 }
 
@@ -105,7 +103,11 @@ impl Iterator for TagIter {
     }
 }
 
-trait TagType {
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait TagType: private::Sealed {
     const ID: u32;
 
     /// For Tags to implement their own validation methods.
@@ -126,6 +128,7 @@ pub struct MemoryMap {
     // a marker of where the entries start.
     entries: [MemoryEntry; 0],
 }
+impl private::Sealed for MemoryMap {}
 
 impl TagType for MemoryMap {
     const ID: u32 = 6;
@@ -180,6 +183,8 @@ pub struct BootLoaderName {
     header: TagHeader,
     string_start: [core::ffi::c_char; 0],
 }
+
+impl private::Sealed for BootLoaderName {}
 
 impl TagType for BootLoaderName {
     const ID: u32 = 2;
