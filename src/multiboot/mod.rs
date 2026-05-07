@@ -1,5 +1,7 @@
 // https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html#Boot-information-format
 
+// TODO. Write integration tests for this module
+
 use core::mem::size_of;
 use core::ptr;
 
@@ -21,26 +23,18 @@ impl BootInformationFormat {
     }
 
     // TODO. return results
-    pub fn get_bootloader_name(&self) -> &BootLoaderName {
-        let basic_tag = self
-            .tags()
+    pub fn get_bootloader_name(&self) -> Option<&BootLoaderName> {
+        self.tags()
             .find(|t| t.typ == const { TagType::BootLoaderName as u32 })
-            .expect("Could not find bootloader name");
-
-        // unsafe { core::mem::transmute(basic_tag) }
-
-        return unsafe { &*(basic_tag as *const TagHeader as *const BootLoaderName) };
+            .map(|tag| unsafe { &*(tag as *const TagHeader as *const BootLoaderName) })
     }
 
-    pub fn get_memory_map(&self) -> &MemoryMap {
-        let base_tag = self
-            .tags()
+    pub fn get_memory_map(&self) -> Option<&MemoryMap> {
+        self.tags()
             .find(|t| t.typ == const { TagType::MemoryMap as u32 })
-            .expect("COuld find mem map");
-
-        let mmap = unsafe { &*(base_tag as *const TagHeader as *const MemoryMap) };
-        mmap.validate();
-        mmap
+            .map(|tag| unsafe { &*(tag as *const TagHeader as *const MemoryMap) })
+            .map(|mm| mm.validate())
+            .flatten()
     }
 
     fn tags(&self) -> TagIter {
@@ -68,7 +62,6 @@ struct TagIter {
 impl Iterator for TagIter {
     type Item = &'static TagHeader;
 
-    // /*
     fn next(&mut self) -> Option<&'static TagHeader> {
         // SAFETY. Since previous iteration should have set as valid tag its okay
         let tag = unsafe { &*self.current };
@@ -122,15 +115,16 @@ pub struct MemoryEntry {
 }
 
 impl MemoryMap {
-    fn validate(&self) {
-        assert_eq!(self.entry_size % 8, 0);
-        // size is mulitple of entry size
-        assert_eq!(
-            (self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>(),
-            0
-        );
-
-        assert_eq!(size_of::<MemoryEntry>(), self.entry_size as usize); // lol. This is not compatable with the spec.
+    /// Returns self, if it passes some checks.
+    fn validate(&self) -> Option<&Self> {
+        if (self.entry_size % 8 == 0)
+            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>() == 0)
+            && (size_of::<MemoryEntry>() == self.entry_size as usize)
+        {
+            Some(self)
+        } else {
+            None
+        }
     }
 
     pub fn get_all_entries(&self) -> &[MemoryEntry] {
@@ -159,25 +153,14 @@ impl core::fmt::Debug for MemoryEntry {
 #[repr(C)]
 pub struct BootLoaderName {
     header: TagHeader,
-    // String start address goes here!
-    // Boot loaded name is here. But Structs have to have a static size, so
-    // I cant just go [char]. This means I need to do a manual offset. Doing a
-    // single `string_start: u8` doesnt work, since then for some reason it only
-    // finds the first byte of the string.
+    string_start: [core::ffi::c_char; 0],
 }
 
 impl BootLoaderName {
     pub fn name(&self) -> Result<&str, core::str::Utf8Error> {
-        unsafe {
-            // Offset pointer to start of string
-            let ptr = (self as *const Self as *const u8).add(size_of::<Self>());
+        let ptr = self.string_start.as_ptr();
 
-            let max_len = self.header.size as usize;
-
-            let slice = core::slice::from_raw_parts(ptr, max_len);
-
-            let len = slice.iter().position(|b| *b == 0).unwrap_or(max_len);
-            core::str::from_utf8(&slice[..len])
-        }
+        // SAFETY: The multiboot spec requires that the string have a null terminator.
+        unsafe { core::ffi::CStr::from_ptr(ptr).to_str() }
     }
 }

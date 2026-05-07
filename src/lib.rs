@@ -69,10 +69,13 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
 
     println!("{:?}", bif);
-    let bln = bif.get_bootloader_name().name();
+    let bln = bif
+        .get_bootloader_name()
+        .expect("can get bootloader name")
+        .name();
     println!("{:?}", bln);
 
-    let mmap = bif.get_memory_map();
+    let mmap = bif.get_memory_map().expect("can get memory_map");
     println!("{:?}", mmap);
 
     let mentry = mmap.get_all_entries();
