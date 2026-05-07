@@ -22,19 +22,12 @@ impl BootInformationFormat {
         multiboot
     }
 
-    // TODO. return results
-    pub fn get_bootloader_name(&self) -> Option<&BootLoaderName> {
+    pub fn get<T: TagType>(&self) -> Result<&T, TagError> {
         self.tags()
-            .find(|t| t.typ == const { TagType::BootLoaderName as u32 })
-            .map(|tag| unsafe { &*(tag as *const TagHeader as *const BootLoaderName) })
-    }
-
-    pub fn get_memory_map(&self) -> Option<&MemoryMap> {
-        self.tags()
-            .find(|t| t.typ == const { TagType::MemoryMap as u32 })
-            .map(|tag| unsafe { &*(tag as *const TagHeader as *const MemoryMap) })
-            .map(|mm| mm.validate())
-            .flatten()
+            .find(|t| t.typ == T::ID)
+            .map(|tag| unsafe { &*(tag as *const TagHeader as *const T) })
+            .ok_or(TagError::NotFound)
+            .and_then(|tag| tag.validate())
     }
 
     fn tags(&self) -> TagIter {
@@ -44,6 +37,12 @@ impl BootInformationFormat {
         assert_eq!(unsafe { *t.current }, self.first_tag);
         t
     }
+}
+
+#[derive(Debug)]
+pub enum TagError {
+    NotFound,
+    ValidationError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +67,7 @@ impl Iterator for TagIter {
 
         assert!(tag.size >= 8);
 
-        if tag.typ == const { TagType::End as u32 } && tag.size == 8 {
+        if tag.typ == 0 && tag.size == 8 {
             return None;
         }
 
@@ -83,15 +82,14 @@ impl Iterator for TagIter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-#[non_exhaustive]
-#[repr(u32)]
-enum TagType {
-    // BasicMemoryInfo = 4, // size = 16
-    End = 0,
-    MemoryMap = 6,
-    BootLoaderName = 2,
+trait TagType {
+    const ID: u32;
+
+    /// For Tags to implement their own validation methods.
+    /// Override with correct implementation when needed.
+    fn validate(&self) -> Result<&Self, TagError> {
+        Ok(self)
+    }
 }
 
 #[derive(Debug)]
@@ -106,6 +104,22 @@ pub struct MemoryMap {
     entries: [MemoryEntry; 0],
 }
 
+impl TagType for MemoryMap {
+    const ID: u32 = 6;
+
+    /// Returns self, if it passes some checks.
+    fn validate(&self) -> Result<&Self, TagError> {
+        if (self.entry_size % 8 == 0)
+            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>() == 0)
+            && (size_of::<MemoryEntry>() == self.entry_size as usize)
+        {
+            Ok(self)
+        } else {
+            Err(TagError::ValidationError)
+        }
+    }
+}
+
 #[repr(C)]
 pub struct MemoryEntry {
     base_addr: u64,
@@ -115,18 +129,6 @@ pub struct MemoryEntry {
 }
 
 impl MemoryMap {
-    /// Returns self, if it passes some checks.
-    fn validate(&self) -> Option<&Self> {
-        if (self.entry_size % 8 == 0)
-            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>() == 0)
-            && (size_of::<MemoryEntry>() == self.entry_size as usize)
-        {
-            Some(self)
-        } else {
-            None
-        }
-    }
-
     pub fn get_all_entries(&self) -> &[MemoryEntry] {
         let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
 
@@ -138,10 +140,10 @@ impl MemoryMap {
     }
 }
 
+// Implement manually so it can be printed in hex
 impl core::fmt::Debug for MemoryEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MemoryEntry")
-            // 16 nibbles needed for u64
             .field("base_addr", &format_args!("{:#X}", self.base_addr))
             .field("length", &format_args!("{:#X}", self.length))
             .field("type", &self.typ)
@@ -154,6 +156,10 @@ impl core::fmt::Debug for MemoryEntry {
 pub struct BootLoaderName {
     header: TagHeader,
     string_start: [core::ffi::c_char; 0],
+}
+
+impl TagType for BootLoaderName {
+    const ID: u32 = 2;
 }
 
 impl BootLoaderName {
