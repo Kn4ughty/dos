@@ -68,19 +68,14 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
 
     let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
 
-    println!("{:?}", bif);
-    let bln = bif
-        .get::<multiboot::BootLoaderName>()
-        .expect("can get bootloader name")
-        .name();
-    println!("{:?}", bln);
-
     let mmap = bif
         .get::<multiboot::MemoryMap>()
         .expect("can get memory_map");
 
     let mentry = mmap.get_all_entries();
-    println!("{:#?}", mentry);
+    for entry in mentry {
+        println!("{:#?}", entry);
+    }
 
     // let bs = b"hello from rustland!";
     // let color = 0x
@@ -112,10 +107,15 @@ macro_rules! print {
 
 #[macro_export]
 macro_rules! println {
-    () => {($crate::vga_print!("\n")); ($crate::serial_print!("\n"))};
+    () => {
+        $crate::vga_print!("\n");
+        $crate::serial_print!("\n")
+    };
     ($($arg:tt)*) => {
-        ($crate::vga_print!("{}\n", format_args!($($arg)*)));
-        ($crate::serial_print!("{}\n", format_args!($($arg)*)));
+        {
+            $crate::vga_print!("{}\n", format_args!($($arg)*));
+            $crate::serial_print!("{}\n", format_args!($($arg)*));
+        }
     };
 }
 

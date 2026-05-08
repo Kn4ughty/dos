@@ -126,7 +126,7 @@ pub struct MemoryMap {
     entry_version: u32,
     // This does not change the size of the struct (because its size is zero) but it does allow for
     // a marker of where the entries start.
-    entries: [MemoryEntry; 0],
+    entries: [RawMemoryEntry; 0],
 }
 impl private::Sealed for MemoryMap {}
 
@@ -136,8 +136,8 @@ impl TagType for MemoryMap {
     /// Returns self, if it passes some checks.
     fn validate(&self) -> Result<&Self, TagError> {
         if (self.entry_size % 8 == 0)
-            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<MemoryEntry>() == 0)
-            && (size_of::<MemoryEntry>() == self.entry_size as usize)
+            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<RawMemoryEntry>() == 0)
+            && (size_of::<RawMemoryEntry>() == self.entry_size as usize)
         {
             Ok(self)
         } else {
@@ -146,23 +146,86 @@ impl TagType for MemoryMap {
     }
 }
 
+#[derive(Debug)]
 #[repr(C)]
-pub struct MemoryEntry {
+pub struct RawMemoryEntry {
     base_addr: u64,
     length: u64, // Size of region in bytes
     typ: u32,
     _reserved: u32,
 }
 
+pub struct MemoryEntry {
+    base_addr: u64,
+    length: u64,          // Size of region in bytes
+    typ: MemoryEntryType, // Validated to be correct
+}
+
+macro_rules! TryFrom {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($variant:ident = $val:expr,)*
+    }) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($variant = $val,)*
+        }
+
+
+        impl TryFrom<u32> for $name {
+            type Error = u32;
+
+            fn try_from(value: u32) -> Result<Self, Self::Error> {
+                match value {
+                    $(x if x == $name::$variant as u32 => Ok($name::$variant),)*
+                    _ => Err(value)
+                }
+            }
+        }
+    }
+}
+
+TryFrom! {
+    #[derive(Debug, PartialEq, Eq)]
+    #[repr(u32)]
+    enum MemoryEntryType {
+        Available = 1,
+        Reserved = 2,
+        ACPIInfo = 3,
+        PreserveForHibernation = 4,
+        DefectiveRam = 5,
+    }
+}
+
+impl TryFrom<&RawMemoryEntry> for MemoryEntry {
+    type Error = ();
+    fn try_from(value: &RawMemoryEntry) -> Result<Self, Self::Error> {
+        let mem_type = MemoryEntryType::try_from(value.typ)
+            .map_err(|_| crate::println!("[WARN] unknown MemoryEntryType: {}", value.typ))?;
+
+        Ok(MemoryEntry {
+            base_addr: value.base_addr,
+            length: value.length,
+            typ: mem_type,
+        })
+    }
+}
+
 impl MemoryMap {
-    pub fn get_all_entries(&self) -> &[MemoryEntry] {
+    pub fn get_all_entries(&self) -> impl Iterator<Item = MemoryEntry> + '_ {
         let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
 
-        unsafe {
+        let raw_slice = unsafe {
             // SAFETY: The entries start right after the end of the struct, as given in the
             // multiboot spec.
-            core::slice::from_raw_parts(self.entries.as_ptr() as *const MemoryEntry, count)
-        }
+            core::slice::from_raw_parts(self.entries.as_ptr() as *const RawMemoryEntry, count)
+        };
+
+        let slice = raw_slice
+            .iter()
+            .filter_map(|rme| MemoryEntry::try_from(rme).ok())
+            .filter(|t| t.typ == MemoryEntryType::Available);
+
+        slice
     }
 }
 
