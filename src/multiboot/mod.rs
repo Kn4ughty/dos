@@ -40,7 +40,7 @@ impl BootInformationFormat {
 
     fn tags(&self) -> TagIter {
         TagIter {
-            total_size: self.total_size as usize,
+            end_address: self as *const _ as usize + self.total_size as usize,
             current: &self.first_tag as *const _,
         }
     }
@@ -62,7 +62,7 @@ struct TagHeader {
 
 #[derive(Debug)]
 struct TagIter {
-    total_size: usize,
+    end_address: usize,
     current: *const TagHeader,
 }
 
@@ -92,7 +92,7 @@ impl Iterator for TagIter {
         // This assert _should_ only trigger if the end tag is missing, or a tag is marked with an
         // incorrect (and large) size.
         assert!(
-            self.total_size < next_addr,
+            next_addr <= self.end_address,
             "Cannot exceed total size of multiboot structure"
         );
 
@@ -262,4 +262,44 @@ impl BootLoaderName {
         // SAFETY: The multiboot spec requires that the string have a null terminator.
         unsafe { core::ffi::CStr::from_ptr(ptr).to_str() }
     }
+}
+
+// The spec actually lies about this tag. It says the tag is this:
+/*      +-------------------+
+u32     | type = 9          |
+u32     | size              |
+u16     | num               |
+u16     | entsize           |
+u16     | shndx             |
+u16     | reserved          |
+varies  | section headers   |
+        +-------------------+
+
+then in the c code example it says:
+struct multiboot_tag_elf_sections
+{
+  multiboot_uint32_t type;
+  multiboot_uint32_t size;
+  multiboot_uint32_t num;
+  multiboot_uint32_t entsize;
+  multiboot_uint32_t shndx;
+  char sections[0];
+};
+*/
+// The c code appears to be the actually correct representation.
+#[derive(Debug)]
+#[repr(C, align(8))]
+pub struct ELFSymbols {
+    header: TagHeader,
+    num: u32,
+    entry_size: u32,
+    section_header_index: u32,
+    _reserved: u16,
+
+    section_headers: [(); 0],
+}
+
+impl private::Sealed for ELFSymbols {}
+impl TagType for ELFSymbols {
+    const ID: u32 = 9;
 }

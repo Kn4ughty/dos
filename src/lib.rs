@@ -77,6 +77,9 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
         println!("{:#?}", entry);
     }
 
+    let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
+    println!("{:#?}", elf);
+
     // let bs = b"hello from rustland!";
     // let color = 0x
     //
