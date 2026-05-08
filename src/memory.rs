@@ -1,4 +1,4 @@
-use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
+use crate::multiboot::{MemoryMap, MemoryRegionType};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
@@ -110,10 +110,10 @@ impl BootInfoFrameAllocator {
 
     #[define_opaque(FrameIterator)]
     fn useable_frames(memory_map: &'static MemoryMap) -> FrameIterator {
-        let regions = memory_map.iter();
-        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+        let regions = memory_map.get_all_entries();
+        let usable_regions = regions.filter(|r| r.typ == MemoryRegionType::Available);
 
-        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+        let addr_ranges = usable_regions.map(|r| r.base_addr..(r.base_addr + r.length));
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096)); // 4kiB pages
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
     }

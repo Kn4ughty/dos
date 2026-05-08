@@ -157,10 +157,10 @@ pub struct RawMemoryEntry {
 
 pub struct MemoryEntry {
     /// The startin address of the memory region
-    base_addr: u64,
+    pub base_addr: u64,
     /// Size of the region in bytes
-    length: u64,
-    typ: MemoryEntryType,
+    pub length: u64,
+    pub typ: MemoryRegionType,
 }
 
 macro_rules! TryFrom {
@@ -189,7 +189,7 @@ macro_rules! TryFrom {
 TryFrom! {
     #[derive(Debug, PartialEq, Eq)]
     #[repr(u32)]
-    enum MemoryEntryType {
+    pub enum MemoryRegionType {
         Available = 1,
         Reserved = 2,
         ACPIInfo = 3,
@@ -201,7 +201,7 @@ TryFrom! {
 impl TryFrom<&RawMemoryEntry> for MemoryEntry {
     type Error = ();
     fn try_from(value: &RawMemoryEntry) -> Result<Self, Self::Error> {
-        let mem_type = MemoryEntryType::try_from(value.typ)
+        let mem_type = MemoryRegionType::try_from(value.typ)
             .map_err(|_| crate::println!("[WARN] unknown MemoryEntryType: {}", value.typ))?;
 
         Ok(MemoryEntry {
@@ -224,8 +224,7 @@ impl MemoryMap {
 
         let slice = raw_slice
             .iter()
-            .filter_map(|rme| MemoryEntry::try_from(rme).ok())
-            .filter(|t| t.typ == MemoryEntryType::Available);
+            .filter_map(|rme| MemoryEntry::try_from(rme).ok());
 
         slice
     }
