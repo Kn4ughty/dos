@@ -21,13 +21,13 @@ iso: kernel
     @cp {{kernel}} build/isofiles/boot/kernel.bin
     @cp {{grub_cfg}} build/isofiles/boot/grub/grub.cfg
     @grub-mkrescue -o {{iso_file}} build/isofiles 2> /dev/null
-    # grub-file --is-x86-multiboot2 {{iso_file}}
     @rm -rf build/isofiles # required?
 
 kernel: (compile-asm)
     cargo build --lib
     # todo. Remove no warn
     ld -n --no-warn-rwx-segments -T {{linker_script}} -o {{kernel}} build/arch/{{arch}}/*.o {{rust_os}}
+    @grub-file --is-x86-multiboot2 {{kernel}}
 
 [private]
 compile-asm:

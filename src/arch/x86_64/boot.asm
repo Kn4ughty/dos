@@ -16,7 +16,7 @@ _start:
 
     lgdt [gdt64.pointer]
 
-    jmp gdt64.code:long_mode_start ; jump to 64 bit land
+    jmp gdt64.code:long_mode_start ; jump to 64bit land
 
     mov dword [0xb8000], 0x4f554f4E
     hlt
@@ -117,6 +117,7 @@ enable_paging:
     mov eax, cr4
     or eax, 1<< 5
     mov cr4, eax
+
     mov ecx, 0xC0000080
     rdmsr
     or eax, 1<< 8
@@ -135,14 +136,6 @@ error:
     mov byte  [0xb800a], al
     hlt
 
-section .rodata
-gdt64:
-    dq 0
-.code: equ $ - gdt64
-    dq (1<<43) | (1<<44) | (1<<47) | (1<<53)
-.pointer:
-    dw $ - gdt64 - 1
-    dq gdt64
 
 section .bss
 align 4096
@@ -156,5 +149,14 @@ p2_table:
 stack_bottom:
     resb 4096 * 4
 stack_top:
+
+section .rodata
+gdt64:
+    dq 0
+.code: equ $ - gdt64
+    dq (1<<43) | (1<<44) | (1<<47) | (1<<53)
+.pointer:
+    dw $ - gdt64 - 1
+    dq gdt64
 
 section .note.GNU-stack noalloc noexec nowrite progbits

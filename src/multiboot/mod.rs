@@ -150,15 +150,17 @@ impl TagType for MemoryMap {
 #[repr(C)]
 pub struct RawMemoryEntry {
     base_addr: u64,
-    length: u64, // Size of region in bytes
+    length: u64,
     typ: u32,
     _reserved: u32,
 }
 
 pub struct MemoryEntry {
+    /// The startin address of the memory region
     base_addr: u64,
-    length: u64,          // Size of region in bytes
-    typ: MemoryEntryType, // Validated to be correct
+    /// Size of the region in bytes
+    length: u64,
+    typ: MemoryEntryType,
 }
 
 macro_rules! TryFrom {
