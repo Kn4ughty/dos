@@ -68,17 +68,25 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
 
     let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
 
-    let mmap = bif
-        .get::<multiboot::MemoryMap>()
-        .expect("can get memory_map");
-
-    let mentry = mmap.get_all_entries();
-    for entry in mentry {
-        println!("{:#?}", entry);
-    }
+    // let mmap = bif
+    //     .get::<multiboot::MemoryMap>()
+    //     .expect("can get memory_map");
+    //
+    // let mentry = mmap.get_all_entries();
+    // for entry in mentry {
+    //     println!("{:#?}", entry);
+    // }
 
     let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
     println!("{:#?}", elf);
+
+    let k_start = elf.get_sections().map(|s| s.start_addr()).min().unwrap();
+    let k_end = elf.get_sections().map(|s| s.end_addr()).max().unwrap();
+    println!("kernl start: {:#x}, end: {:#x}", k_start, k_end);
+
+    let m_start = bif.start_addr();
+    let m_end = bif.end_addr();
+    println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
 
     // let bs = b"hello from rustland!";
     // let color = 0x

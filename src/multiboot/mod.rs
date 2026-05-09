@@ -2,7 +2,48 @@
 
 // TODO. Write integration tests for this module
 
-use core::mem::size_of;
+mod memory_map;
+pub use memory_map::{MemoryEntry, MemoryMap, MemoryRegionType};
+mod elf;
+pub use elf::{ELFSymbols, ElfSection};
+
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait TagType: private::Sealed {
+    const ID: u32;
+
+    /// For Tags to implement their own validation methods.
+    /// Override with correct implementation when needed.
+    fn validate(&self) -> Result<&Self, TagError> {
+        Ok(self)
+    }
+}
+
+macro_rules! tryfrom {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($variant:ident = $val:expr,)*
+    }) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($variant = $val,)*
+        }
+
+
+        impl TryFrom<u32> for $name {
+            type Error = u32;
+
+            fn try_from(value: u32) -> Result<Self, Self::Error> {
+                match value {
+                    $(x if x == $name::$variant as u32 => Ok($name::$variant),)*
+                    _ => Err(value)
+                }
+            }
+        }
+    }
+}
+pub(crate) use tryfrom;
 
 #[derive(Debug)]
 #[repr(C, align(8))]
@@ -43,6 +84,14 @@ impl BootInformationFormat {
             end_address: self as *const _ as usize + self.total_size as usize,
             current: &self.first_tag as *const _,
         }
+    }
+
+    pub fn start_addr(&self) -> u64 {
+        self as *const Self as u64
+    }
+
+    pub fn end_addr(&self) -> u64 {
+        self.start_addr() + self.total_size as u64
     }
 }
 
@@ -103,144 +152,6 @@ impl Iterator for TagIter {
     }
 }
 
-mod private {
-    pub trait Sealed {}
-}
-
-pub trait TagType: private::Sealed {
-    const ID: u32;
-
-    /// For Tags to implement their own validation methods.
-    /// Override with correct implementation when needed.
-    fn validate(&self) -> Result<&Self, TagError> {
-        Ok(self)
-    }
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct MemoryMap {
-    typ: u32, // Must equal 6
-    size: u32,
-    entry_size: u32,
-    entry_version: u32,
-    // This does not change the size of the struct (because its size is zero) but it does allow for
-    // a marker of where the entries start.
-    entries: [RawMemoryEntry; 0],
-}
-impl private::Sealed for MemoryMap {}
-
-impl TagType for MemoryMap {
-    const ID: u32 = 6;
-
-    /// Returns self, if it passes some checks.
-    fn validate(&self) -> Result<&Self, TagError> {
-        if (self.entry_size % 8 == 0)
-            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<RawMemoryEntry>() == 0)
-            && (size_of::<RawMemoryEntry>() == self.entry_size as usize)
-        {
-            Ok(self)
-        } else {
-            Err(TagError::ValidationError)
-        }
-    }
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct RawMemoryEntry {
-    base_addr: u64,
-    length: u64,
-    typ: u32,
-    _reserved: u32,
-}
-
-pub struct MemoryEntry {
-    /// The startin address of the memory region
-    pub base_addr: u64,
-    /// Size of the region in bytes
-    pub length: u64,
-    pub typ: MemoryRegionType,
-}
-
-macro_rules! TryFrom {
-    ($(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($variant:ident = $val:expr,)*
-    }) => {
-        $(#[$meta])*
-        $vis enum $name {
-            $($variant = $val,)*
-        }
-
-
-        impl TryFrom<u32> for $name {
-            type Error = u32;
-
-            fn try_from(value: u32) -> Result<Self, Self::Error> {
-                match value {
-                    $(x if x == $name::$variant as u32 => Ok($name::$variant),)*
-                    _ => Err(value)
-                }
-            }
-        }
-    }
-}
-
-TryFrom! {
-    #[derive(Debug, PartialEq, Eq)]
-    #[repr(u32)]
-    pub enum MemoryRegionType {
-        Available = 1,
-        Reserved = 2,
-        ACPIInfo = 3,
-        PreserveForHibernation = 4,
-        DefectiveRam = 5,
-    }
-}
-
-impl TryFrom<&RawMemoryEntry> for MemoryEntry {
-    type Error = ();
-    fn try_from(value: &RawMemoryEntry) -> Result<Self, Self::Error> {
-        let mem_type = MemoryRegionType::try_from(value.typ)
-            .map_err(|_| crate::println!("[WARN] unknown MemoryEntryType: {}", value.typ))?;
-
-        Ok(MemoryEntry {
-            base_addr: value.base_addr,
-            length: value.length,
-            typ: mem_type,
-        })
-    }
-}
-
-impl MemoryMap {
-    pub fn get_all_entries(&self) -> impl Iterator<Item = MemoryEntry> + '_ {
-        let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
-
-        let raw_slice = unsafe {
-            // SAFETY: The entries start right after the end of the struct, as given in the
-            // multiboot spec.
-            core::slice::from_raw_parts(self.entries.as_ptr() as *const RawMemoryEntry, count)
-        };
-
-        let slice = raw_slice
-            .iter()
-            .filter_map(|rme| MemoryEntry::try_from(rme).ok());
-
-        slice
-    }
-}
-
-// Implement manually so it can be printed in hex
-impl core::fmt::Debug for MemoryEntry {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("MemoryEntry")
-            .field("base_addr", &format_args!("{:#X}", self.base_addr))
-            .field("length", &format_args!("{:#X}", self.length))
-            .field("type", &self.typ)
-            .finish()
-    }
-}
-
 #[derive(Debug)]
 #[repr(C)]
 pub struct BootLoaderName {
@@ -261,44 +172,4 @@ impl BootLoaderName {
         // SAFETY: The multiboot spec requires that the string have a null terminator.
         unsafe { core::ffi::CStr::from_ptr(ptr).to_str() }
     }
-}
-
-// The spec actually lies about this tag. It says the tag is this:
-/*      +-------------------+
-u32     | type = 9          |
-u32     | size              |
-u16     | num               |
-u16     | entsize           |
-u16     | shndx             |
-u16     | reserved          |
-varies  | section headers   |
-        +-------------------+
-
-then in the c code example it says:
-struct multiboot_tag_elf_sections
-{
-  multiboot_uint32_t type;
-  multiboot_uint32_t size;
-  multiboot_uint32_t num;
-  multiboot_uint32_t entsize;
-  multiboot_uint32_t shndx;
-  char sections[0];
-};
-*/
-// The c code appears to be the actually correct representation.
-#[derive(Debug)]
-#[repr(C, align(8))]
-pub struct ELFSymbols {
-    header: TagHeader,
-    num: u32,
-    entry_size: u32,
-    section_header_index: u32,
-    _reserved: u16,
-
-    section_headers: [(); 0],
-}
-
-impl private::Sealed for ELFSymbols {}
-impl TagType for ELFSymbols {
-    const ID: u32 = 9;
 }
