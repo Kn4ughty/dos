@@ -5,6 +5,7 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
+#![feature(trait_alias)]
 
 extern crate alloc;
 
@@ -13,53 +14,18 @@ use core::panic::PanicInfo;
 use crate::multiboot::BootInformationFormat;
 
 pub mod allocator;
+// pub mod _memory;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
+pub mod multiboot;
 pub mod pic;
 pub mod port;
 pub mod serial;
 pub mod vga_buffer;
 pub mod volatile;
 
-pub mod multiboot;
-
-// #[unsafe(no_mangle)]
-// pub extern "C" fn _start() -> ! {
-//     kernel_main();
-// }
-
-// fn kernel_main() -> ! {
-// init();
-// vga_println!("Hello world!");
-//
-// vga_println!("{:?}", boot_info);
-//
-// let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-// let mut mapper = unsafe { memory::init(phys_mem_offset) };
-// let mut frame_allocator =
-//     unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
-//
-// allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
-//
-// let reference_counted = Rc::new(vec![1, 2, 3]);
-// let cloned_reference = reference_counted.clone();
-// vga_println!(
-//     "current reference count is {}",
-//     Rc::strong_count(&cloned_reference)
-// );
-// core::mem::drop(reference_counted);
-// vga_println!(
-//     "reference count is {} now",
-//     Rc::strong_count(&cloned_reference)
-// );
-//
-// #[cfg(test)]
-// test_main();
-//
-//     vga_println!("Did not crash. End of main");
-//     hlt_loop();
-// }
+use memory::FrameAllocator;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
@@ -80,16 +46,65 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
     println!("{:#?}", elf);
 
-    let k_start = elf.get_sections().map(|s| s.start_addr()).min().unwrap();
-    let k_end = elf.get_sections().map(|s| s.end_addr()).max().unwrap();
+    let k_start = elf.get_sections().map(|s| s.start_addr()).min().unwrap() as usize;
+    let k_end = elf.get_sections().map(|s| s.end_addr()).max().unwrap() as usize;
     println!("kernl start: {:#x}, end: {:#x}", k_start, k_end);
 
-    let m_start = bif.start_addr();
-    let m_end = bif.end_addr();
+    let m_start = bif.start_addr() as usize;
+    let m_end = bif.end_addr() as usize;
     println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
 
     // let b1 = alloc::boxed::Box::new(12);
     // assert_eq!(*b1, 12);
+
+    let mut frame_alloc = memory::area_frame_allocator::new(
+        k_start,
+        k_end,
+        m_start,
+        m_end,
+        bif.get::<multiboot::MemoryMap>().unwrap(),
+    );
+    for i in 0.. {
+        // This is wayy wrong
+        if let None = frame_alloc.allocate_frame() {
+            println!("allocated {} frames", i);
+            break;
+        }
+    }
+
+    // ---------------------------------------------
+
+    // use x86_64::VirtAddr;
+    //
+    // let phys_mem_offset = VirtAddr::new(1 << 20);
+    // let mut mapper = unsafe { memory::init(phys_mem_offset) };
+    // let mut frame_allocator =
+    //     unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    //
+    // allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
+    //
+    // use alloc::{rc::Rc, vec};
+    //
+    // let reference_counted = Rc::new(vec![1, 2, 3]);
+    // let cloned_reference = reference_counted.clone();
+    // vga_println!(
+    //     "current reference count is {}",
+    //     Rc::strong_count(&cloned_reference)
+    // );
+    // core::mem::drop(reference_counted);
+    // vga_println!(
+    //     "reference count is {} now",
+    //     Rc::strong_count(&cloned_reference)
+    // );
+
+    #[cfg(test)]
+    test_main();
+
+    // let bs = b"hello from rustland!";
+    // let color = 0x
+    //
+    // let buffer_ptr = (0xb8000 + 1988) as *mut _;
+    // unsafe { *buffer_ptr = [0x1f67] };
 
     vga_println!("Finished");
     hlt_loop();

@@ -38,6 +38,7 @@ pub struct RawMemoryEntry {
     _reserved: u32,
 }
 
+#[derive(Clone)]
 pub struct MemoryEntry {
     /// The startin address of the memory region
     pub base_addr: u64,
@@ -47,7 +48,7 @@ pub struct MemoryEntry {
 }
 
 tryfrom! {
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u32)]
     pub enum MemoryRegionType {
         Available = 1,

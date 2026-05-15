@@ -16,6 +16,10 @@ clean:
 run: iso
     qemu-system-x86_64 -cdrom {{iso_file}} -serial stdio
 
+dbg: iso
+    qemu-system-x86_64 -cdrom build/os-x86_64.iso -serial stdio -d int,cpu_reset -no-reboot -no-shutdown -s -S
+
+
 iso: kernel
     @mkdir -p build/isofiles/boot/grub
     @cp {{kernel}} build/isofiles/boot/kernel.bin
