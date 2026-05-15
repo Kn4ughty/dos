@@ -16,6 +16,7 @@ SECTIONS {
 
     .rodata : 
     {
+        /* Merge all the sections together, instead of one section like per function */
         *(.rodata .rodata.*)
     }
 

@@ -6,13 +6,13 @@
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
 
-// extern crate alloc;
+extern crate alloc;
 
 use core::panic::PanicInfo;
 
 use crate::multiboot::BootInformationFormat;
-//
-// // pub mod allocator;
+
+pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
@@ -88,11 +88,8 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let m_end = bif.end_addr();
     println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
 
-    // let bs = b"hello from rustland!";
-    // let color = 0x
-    //
-    // let buffer_ptr = (0xb8000 + 1988) as *mut _;
-    // unsafe { *buffer_ptr = [0x1f67] };
+    // let b1 = alloc::boxed::Box::new(12);
+    // assert_eq!(*b1, 12);
 
     vga_println!("Finished");
     hlt_loop();
