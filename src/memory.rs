@@ -8,7 +8,7 @@ use x86_64::{
 
 use core::{ops::Range, panic};
 
-/// Safety
+/// # Safety
 /// This function must be called only once to avoid aliasing `&mut`
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     unsafe {
@@ -20,6 +20,7 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
 
 /// Returns a mutable reference to the active level 4 table.
 ///
+/// # Safety
 /// This function is unsafe because the caller must guarantee that the
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`. Also, this function must be only called once
@@ -41,6 +42,7 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 /// Translates the given virtual address to its mapped physical address, or None if it is not
 /// mapped.
 ///
+/// # Safety
 /// This function is unsafe because the caller must guarantee that the
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`. Also, this function must be only called once
@@ -99,6 +101,7 @@ pub struct BootInfoFrameAllocator {
 impl BootInfoFrameAllocator {
     /// Create a FrameAllocator from the passed memory mjap
     ///
+    /// # Safety
     /// This function is unsafe because the caller must guarantee that the passed memory map is
     /// valid. The main requirement is that all frames that are mared `USABLE` in it are really
     /// unused.

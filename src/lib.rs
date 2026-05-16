@@ -5,13 +5,11 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
-#![feature(trait_alias)]
+// #![feature(trait_alias)]
 
 extern crate alloc;
 
 use core::panic::PanicInfo;
-
-use x86_64::{PhysAddr, structures::paging::PhysFrame};
 
 use crate::multiboot::BootInformationFormat;
 
@@ -164,6 +162,7 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
     // Problem with using unreachable!() here is that the panic handler could call exit_qemu, leading
     // to an infinite loop of unreachable!()
     // This location _should_ be unreachable.
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 //

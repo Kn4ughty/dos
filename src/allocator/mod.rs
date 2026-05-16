@@ -1,4 +1,3 @@
-use linked_list_allocator::LockedHeap;
 use x86_64::{
     VirtAddr,
     structures::paging::{
@@ -6,9 +5,7 @@ use x86_64::{
     },
 };
 
-use alloc::alloc::{GlobalAlloc, Layout};
 
-use core::ptr::null_mut;
 
 pub mod fixed_size_block;
 
@@ -31,7 +28,7 @@ impl<A> Locked<A> {
         }
     }
 
-    pub fn lock(&self) -> spin::MutexGuard<A> {
+    pub fn lock(&self) -> spin::MutexGuard<'_, A> {
         self.inner.lock()
     }
 }

@@ -104,14 +104,13 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 
     // https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
 
-    if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-        if let Some(key) = keyboard.process_keyevent(key_event) {
+    if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
+        && let Some(key) = keyboard.process_keyevent(key_event) {
             match key {
                 DecodedKey::Unicode(c) => vga_print!("{}", c),
                 DecodedKey::RawKey(raw) => vga_print!("{:?}", raw),
             }
         }
-    }
 
     unsafe {
         PICS.lock()

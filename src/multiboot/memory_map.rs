@@ -18,8 +18,9 @@ impl TagType for MemoryMap {
 
     /// Returns self, if it passes some checks.
     fn validate(&self) -> Result<&Self, TagError> {
-        if (self.entry_size % 8 == 0)
-            && ((self.size as usize - size_of::<MemoryMap>()) % size_of::<RawMemoryEntry>() == 0)
+        if self.entry_size.is_multiple_of(8)
+            && (self.size as usize - size_of::<MemoryMap>())
+                .is_multiple_of(size_of::<RawMemoryEntry>())
             && (size_of::<RawMemoryEntry>() == self.entry_size as usize)
         {
             Ok(self)
@@ -80,14 +81,12 @@ impl MemoryMap {
         let raw_slice = unsafe {
             // SAFETY: The entries start right after the end of the struct, as given in the
             // multiboot spec.
-            core::slice::from_raw_parts(self.entries.as_ptr() as *const RawMemoryEntry, count)
+            core::slice::from_raw_parts(self.entries.as_ptr(), count)
         };
 
-        let slice = raw_slice
+        raw_slice
             .iter()
-            .filter_map(|rme| MemoryEntry::try_from(rme).ok());
-
-        slice
+            .filter_map(|rme| MemoryEntry::try_from(rme).ok())
     }
 }
 

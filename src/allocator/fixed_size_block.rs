@@ -14,6 +14,12 @@ pub struct FixedSizeBlockAllocator {
     fallback_allocator: linked_list_allocator::Heap, // todo: implement manually
 }
 
+impl Default for FixedSizeBlockAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FixedSizeBlockAllocator {
     pub const fn new() -> Self {
         FixedSizeBlockAllocator {
@@ -24,6 +30,7 @@ impl FixedSizeBlockAllocator {
 
     /// Initialize the allocated with the given heap bounds
     ///
+    /// # Safety
     /// This function is unsafe because the caller must guarantee that the given heap bounds are
     /// valid and the heap is unused. Must be called only once.
     pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {

@@ -81,7 +81,7 @@ impl ElfSection {
 
         let name_ptr = unsafe { stringtable_ptr.offset(self.inner().name_index as isize) };
 
-        unsafe { core::ffi::CStr::from_ptr(name_ptr as *const i8).to_str() }
+        unsafe { core::ffi::CStr::from_ptr(name_ptr).to_str() }
     }
 
     pub fn start_addr(&self) -> u64 {

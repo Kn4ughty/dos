@@ -54,7 +54,7 @@ pub struct BootInformationFormat {
 }
 
 impl BootInformationFormat {
-    /// SAFETY
+    /// # Safety
     /// Caller must pass in valid address to the multiboot2 header.
     pub unsafe fn load<'a>(addr: usize) -> &'a BootInformationFormat {
         assert_eq!(addr % 8, 0, "Multiboot Header must be 8-byte aligned");

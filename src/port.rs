@@ -15,10 +15,14 @@ impl PortReadAccess for ReadWriteAccess {}
 impl PortWriteAccess for ReadWriteAccess {}
 
 pub trait PortRead {
+    /// # Safety
+    /// Implementation must actually read from port
     unsafe fn read_from_port(port: u16) -> Self;
 }
 
 pub trait PortWrite {
+    /// # Safety
+    /// Implementation must actually write to port correctly
     unsafe fn write_to_port(port: u16, val: Self);
 }
 
@@ -40,7 +44,7 @@ impl PortRead for u8 {
             asm!("in al, dx", out("al") ret, in("dx") port,
             options(nomem, preserves_flags, nostack));
         }
-        return ret;
+        ret
     }
 }
 
@@ -66,15 +70,15 @@ pub type PortWriteOnly<T> = PortGeneric<T, ReadWriteAccess>;
 
 impl<T, A> PortGeneric<T, A> {
     pub const fn new(port: u16) -> PortGeneric<T, A> {
-        return PortGeneric {
+        PortGeneric {
             port,
             phantom: PhantomData,
-        };
+        }
     }
 }
 
 impl<T: PortRead, A: PortReadAccess> PortGeneric<T, A> {
-    /// ## Safety
+    /// # Safety
     /// The port could have side effects that violate memory safety
     #[inline]
     pub unsafe fn read(&mut self) -> T {

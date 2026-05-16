@@ -24,11 +24,11 @@ impl Pic {
         }
     }
 
-    unsafe fn read_mask(&mut self) -> u8 {
+    fn read_mask(&mut self) -> u8 {
         unsafe { self.data.read() }
     }
 
-    unsafe fn write_mask(&mut self, mask: u8) {
+    fn write_mask(&mut self, mask: u8) {
         unsafe { self.data.write(mask) }
     }
 }
@@ -38,6 +38,8 @@ pub struct ChainedPics {
 }
 
 impl ChainedPics {
+    /// # Safety
+    /// Must be valid offsets to a chained PIC
     pub const unsafe fn new(offset1: u8, offset2: u8) -> ChainedPics {
         ChainedPics {
             pics: [
@@ -55,6 +57,8 @@ impl ChainedPics {
         }
     }
 
+    /// # Safety
+    /// Must only be called once
     pub unsafe fn initialize(&mut self) {
         unsafe {
             let mut wait_port: Port<u8> = Port::new(0x80); // unused port
@@ -73,9 +77,9 @@ impl ChainedPics {
             self.pics[1].data.write(self.pics[1].offset);
             wait();
 
-            self.pics[0].data.write(4);
+            self.pics[0].data.write(4); // Call address interval
             wait();
-            self.pics[1].data.write(2);
+            self.pics[1].data.write(2); // Auto normal EOI
             wait();
 
             self.pics[0].data.write(MODE_8086);
@@ -87,21 +91,21 @@ impl ChainedPics {
         }
     }
 
-    pub unsafe fn read_masks(&mut self) -> [u8; 2] {
-        unsafe { [self.pics[0].read_mask(), self.pics[1].read_mask()] }
+    unsafe fn read_masks(&mut self) -> [u8; 2] {
+        [self.pics[0].read_mask(), self.pics[1].read_mask()]
     }
 
-    pub unsafe fn write_masks(&mut self, mask1: u8, mask2: u8) {
-        unsafe {
-            self.pics[0].write_mask(mask1);
-            self.pics[1].write_mask(mask2);
-        }
+    unsafe fn write_masks(&mut self, mask1: u8, mask2: u8) {
+        self.pics[0].write_mask(mask1);
+        self.pics[1].write_mask(mask2);
     }
 
     pub fn handles_interrupt(&self, interrupt_id: u8) -> bool {
         self.pics.iter().any(|p| p.handles_interrupt(interrupt_id))
     }
 
+    /// # Safety
+    /// Must only be called after getting to the end of an interrupt, with a real `interrupt_id`
     pub unsafe fn notify_end_of_interrupt(&mut self, interrupt_id: u8) {
         if self.handles_interrupt(interrupt_id) {
             if self.pics[1].handles_interrupt(interrupt_id) {
