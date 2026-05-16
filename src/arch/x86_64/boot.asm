@@ -87,14 +87,26 @@ check_long_mode:
     mov al, "2"
     jmp error
 
+%include "constants.asm"
+P4_INDEX equ (PAGE_TABLE_OFFSET >> 39) & 0x1FF
+
+
 setup_page_tables:
-    mov eax, p3_table
-    or eax, 0b11
+    mov eax, p3_table_lower
+    or eax, 0b11   ; present + writable
     mov [p4_table], eax
 
+    ; point PML4 entry 256 to the higher P3 table
+    mov eax, p3_table_higher
+    or eax, 0b11
+    mov [p4_table + P4_INDEX*8], eax
+
+    ; Link p3 tables to P2 table
     mov eax, p2_table
-    or eax, 0b11;
-    mov [p3_table], eax
+    or eax, 0b11
+    mov [p3_table_lower], eax
+
+    mov [p3_table_higher], eax
 
     ; map each p2 entry to huge 2MiB page
     mov ecx, 0 ; counter
@@ -139,10 +151,11 @@ error:
 
 section .bss
 align 4096
-align 4096
 p4_table:
     resb 4096
-p3_table:
+p3_table_lower:    ; identity mapping
+    resb 4096
+p3_table_higher:   ; Physical memory offset mapping
     resb 4096
 p2_table:
     resb 4096

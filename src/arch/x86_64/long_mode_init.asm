@@ -1,5 +1,7 @@
 global long_mode_start
 
+%include "constants.asm"
+
 section .text
 bits 64
 long_mode_start:
@@ -9,6 +11,8 @@ long_mode_start:
     mov es, ax
     mov fs, ax
     mov gs, ax
+
+    mov rsi, PAGE_TABLE_OFFSET
 
     extern rust_main
     call rust_main

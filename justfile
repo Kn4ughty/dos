@@ -4,6 +4,7 @@ iso_file := "build/os-" + arch + ".iso"
 target := arch+ "-target"
 rust_os := "target/" + target + "/debug/libos.a"
 
+asm_folder := "src/arch/" + arch + "/"
 linker_script := "src/arch/" + arch + "/linker.ld"
 grub_cfg := "src/arch/" + arch+ "/grub.cfg"
 
@@ -36,7 +37,8 @@ kernel: (compile-asm)
 [private]
 compile-asm:
     #!/usr/bin/env bash
+    set -e
     mkdir -p build/arch/{{arch}}
-    for file in src/arch/{{arch}}/*.asm; do\
-        nasm -felf64 "$file" -o "build/arch/{{arch}}/$(basename "${file%.asm}.o")"; \
+    for file in src/arch/{{arch}}/*.asm; do
+        nasm -felf64 "$file" -i {{asm_folder}} -o "build/arch/{{arch}}/$(basename "${file%.asm}.o")";
     done

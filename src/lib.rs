@@ -11,13 +11,17 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
+use x86_64::{PhysAddr, structures::paging::PhysFrame};
+
 use crate::multiboot::BootInformationFormat;
 
+pub mod memory;
+
 pub mod allocator;
-// pub mod _memory;
 pub mod gdt;
 pub mod interrupts;
-pub mod memory;
+//pub mod _memory;
+
 pub mod multiboot;
 pub mod pic;
 pub mod port;
@@ -25,23 +29,14 @@ pub mod serial;
 pub mod vga_buffer;
 pub mod volatile;
 
-use memory::FrameAllocator;
+//use memory::FrameAllocator;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
+pub extern "C" fn rust_main(multiboot_information_address: usize, phys_mem_offset: u64) -> ! {
     vga_println!("Hello from rustland!");
     init();
 
     let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
-
-    // let mmap = bif
-    //     .get::<multiboot::MemoryMap>()
-    //     .expect("can get memory_map");
-    //
-    // let mentry = mmap.get_all_entries();
-    // for entry in mentry {
-    //     println!("{:#?}", entry);
-    // }
 
     let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
     println!("{:#?}", elf);
@@ -54,32 +49,25 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) -> ! {
     let m_end = bif.end_addr() as usize;
     println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
 
-    // let b1 = alloc::boxed::Box::new(12);
-    // assert_eq!(*b1, 12);
+    use x86_64::{VirtAddr, structures::paging::Page};
 
-    let mut frame_alloc = memory::area_frame_allocator::new(
-        k_start,
-        k_end,
-        m_start,
-        m_end,
-        bif.get::<multiboot::MemoryMap>().unwrap(),
-    );
-    for i in 0.. {
-        // This is wayy wrong
-        if let None = frame_alloc.allocate_frame() {
-            println!("allocated {} frames", i);
-            break;
-        }
-    }
+    let phys_mem_offset = VirtAddr::new(phys_mem_offset);
+    let mut mapper = unsafe { memory::init(phys_mem_offset) };
 
-    // ---------------------------------------------
+    let mut frame_allocator = unsafe {
+        memory::BootInfoFrameAllocator::init(
+            bif.get::<multiboot::MemoryMap>().expect("can get mem"),
+            k_start as u64..m_end as u64,
+        )
+    };
 
-    // use x86_64::VirtAddr;
-    //
-    // let phys_mem_offset = VirtAddr::new(1 << 20);
-    // let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    // let mut frame_allocator =
-    //     unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    let page = Page::containing_address(VirtAddr::new(0xdeadbeaf000));
+    memory::create_example_map(page, &mut mapper, &mut frame_allocator);
+
+    // write the string `New!` to the screen through the new mapping
+    let page_ptr: *mut u64 = page.start_address().as_mut_ptr();
+    unsafe { page_ptr.offset(415).write_volatile(0x_f021_f077_f065_f04e) };
+
     //
     // allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
     //

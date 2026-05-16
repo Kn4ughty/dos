@@ -6,13 +6,14 @@ use x86_64::{
     },
 };
 
-use core::panic;
+use core::{ops::Range, panic};
 
 /// Safety
 /// This function must be called only once to avoid aliasing `&mut`
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     unsafe {
         let level_4_pagetable = active_level_4_table(physical_memory_offset);
+
         OffsetPageTable::new(level_4_pagetable, physical_memory_offset)
     }
 }
@@ -29,6 +30,7 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     let (level_4_pagetable, _) = Cr3::read();
 
     let phys = level_4_pagetable.start_address();
+
     let virt = physical_memory_offset + phys.as_u64();
 
     let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
@@ -91,7 +93,6 @@ type FrameIterator = impl Iterator<Item = PhysFrame>;
 // }
 
 pub struct BootInfoFrameAllocator {
-    next: usize,
     iterator: FrameIterator,
 }
 
@@ -101,29 +102,34 @@ impl BootInfoFrameAllocator {
     /// This function is unsafe because the caller must guarantee that the passed memory map is
     /// valid. The main requirement is that all frames that are mared `USABLE` in it are really
     /// unused.
-    pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
+    pub unsafe fn init(memory_map: &'static MemoryMap, reserverd_range: Range<u64>) -> Self {
         BootInfoFrameAllocator {
-            next: 0,
-            iterator: Self::useable_frames(memory_map),
+            iterator: Self::useable_frames(memory_map, reserverd_range),
         }
     }
 
     #[define_opaque(FrameIterator)]
-    fn useable_frames(memory_map: &'static MemoryMap) -> FrameIterator {
+    fn useable_frames(
+        memory_map: &'static MemoryMap,
+        reserverd_range: Range<u64>,
+    ) -> FrameIterator {
         let regions = memory_map.get_all_entries();
         let usable_regions = regions.filter(|r| r.typ == MemoryRegionType::Available);
 
         let addr_ranges = usable_regions.map(|r| r.base_addr..(r.base_addr + r.length));
-        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096)); // 4kiB pages
+        let frame_addresses = addr_ranges
+            .flat_map(|r| {
+                assert!(r.start & 4096 == 0);
+                r.step_by(4096)
+            })
+            .filter(move |r| !reserverd_range.contains(r)); // 4kiB pages
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
-        let frame = self.iterator.nth(self.next);
-        self.next += 1;
-        frame
+        self.iterator.next()
     }
 }
 
@@ -136,7 +142,7 @@ pub fn create_example_map(
 
     let frames = PhysFrame::containing_address(PhysAddr::new(0xb8000));
     let flags = Flags::PRESENT | Flags::WRITABLE; // u64
-    //
+
     let map_to_result = unsafe {
         // FIXME: This is not safe since it will alias &mut. Only for testing
         mapper.map_to(page, frames, flags, frame_allocator)
