@@ -45,9 +45,20 @@ impl<T> Mutex<T> {
         }
     }
 
-    // pub fn inner(&self) -> T {
-    //     // if self.locked.
-    // }
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
+        if self
+            .lock
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            Some(MutexGuard {
+                lock: &self.lock,
+                data: unsafe { &mut *self.data.get() },
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a, T> core::ops::Deref for MutexGuard<'a, T> {
@@ -59,7 +70,7 @@ impl<'a, T> core::ops::Deref for MutexGuard<'a, T> {
 
 impl<'a, T> core::ops::DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
+        self.data
     }
 }
 
@@ -79,5 +90,18 @@ mod tests {
         let val = m.lock();
         assert_eq!(23, *val);
         drop(val);
+    }
+
+    #[test_case]
+    fn try_lock() {
+        let m = Mutex::new(42);
+        let val1 = m.try_lock();
+        assert_eq!(val1.as_ref().map(|r| **r), Some(42));
+
+        let val2 = m.try_lock();
+        assert_eq!(val2.as_ref().map(|r| **r), None);
+        drop(val1);
+        let val2 = m.try_lock();
+        assert_eq!(val2.as_ref().map(|r| **r), Some(42));
     }
 }

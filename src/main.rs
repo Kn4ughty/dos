@@ -56,12 +56,12 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     let reference_counted = Rc::new(vec![1, 2, 3]);
     let cloned_reference = reference_counted.clone();
-    vga_println!(
+    println!(
         "current reference count is {}",
         Rc::strong_count(&cloned_reference)
     );
     core::mem::drop(reference_counted);
-    vga_println!(
+    println!(
         "reference count is {} now",
         Rc::strong_count(&cloned_reference)
     );
