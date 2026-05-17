@@ -20,43 +20,6 @@ run: iso
 dbg: iso
     qemu-system-x86_64 -cdrom build/os-x86_64.iso -serial stdio -d int,cpu_reset -no-reboot -no-shutdown -s -S
 
-test: (compile-asm "-dTEST_BUILD")
-    #!/usr/bin/env bash
-    # set -euo pipefail
-    cargo build --tests
-
-    for file in tests/*.rs; do
-        test_name=$(basename "${file%.*}")
-        echo "Running test $test_name..."
-
-        # cargo 
-
-
-
-
-        # cargo test --test "$test_name" --no-run --message-format=json -- --emit=obj > build/cargo_output.json
-        # obj_file=$(jq -r 'select(.profile.test == true and .target.name == "'"$test_name"'") | .filenames[] | select(.endswith(".o"))' build/cargo_output.json)
-        # echo $obj_file
-
-
-        # cargo rustc --test "$test_name" --message-format=json -- --emit=obj > build/cargo_output.json
-        # exec=$(cat build/cargo_output.json | jq -r 'select(.profile.test == true and .target.name == "basic_boot") | .executable')
-        # obj=$(jq -r 'select(.reason=="compiler-artifact") | .filenames[] | select(endswith(".o"))' build/cargo_output.json | head -n1)
-
-        # echo $exec
-
-        # test_kernel="build/kernel-test-$test_name.bin"
-        # ld -n --no-warn-rwx-segments -T {{linker_script}} -o "$test_kernel" build/arch/{{arch}}/*.o "$exec"
-        #
-        # echo $exec
-        # # echo {{iso_file}}
-        # #
-        # just package_iso_direct "$test_kernel" {{iso_file}}
-        #
-        # qemu-system-x86_64 -cdrom {{iso_file}} -serial stdio
-
-    done
-
 
 iso: (compile-asm) 
     cargo build

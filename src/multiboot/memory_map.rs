@@ -57,6 +57,7 @@ tryfrom! {
         ACPIInfo = 3,
         PreserveForHibernation = 4,
         DefectiveRam = 5,
+        Unknown = 99,
     }
 }
 
@@ -76,17 +77,19 @@ impl TryFrom<&RawMemoryEntry> for MemoryEntry {
 
 impl MemoryMap {
     pub fn get_all_entries(&self) -> impl Iterator<Item = MemoryEntry> + '_ {
+        self.as_slice()
+            .iter()
+            .filter_map(|rme| MemoryEntry::try_from(rme).ok())
+    }
+
+    pub fn as_slice(&self) -> &[RawMemoryEntry] {
         let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
 
-        let raw_slice = unsafe {
+        unsafe {
             // SAFETY: The entries start right after the end of the struct, as given in the
             // multiboot spec.
             core::slice::from_raw_parts(self.entries.as_ptr(), count)
-        };
-
-        raw_slice
-            .iter()
-            .filter_map(|rme| MemoryEntry::try_from(rme).ok())
+        }
     }
 }
 
@@ -100,3 +103,34 @@ impl core::fmt::Debug for MemoryEntry {
             .finish()
     }
 }
+
+#[allow(unused)]
+fn br_to_r(br: bootloader::bootinfo::MemoryRegionType) -> MemoryRegionType {
+    // not bothering with all
+    match br {
+        bootloader::bootinfo::MemoryRegionType::BadMemory => MemoryRegionType::DefectiveRam,
+        bootloader::bootinfo::MemoryRegionType::Usable => MemoryRegionType::Available,
+        _ => MemoryRegionType::Unknown,
+    }
+}
+
+#[allow(unused)]
+pub fn from_bootimage(
+    mmap: &'static bootloader::bootinfo::MemoryMap,
+) -> impl Iterator<Item = MemoryEntry> + 'static {
+    mmap.iter().map(|m| MemoryEntry {
+        typ: br_to_r(m.region_type),
+        length: m.range.end_addr() - m.range.start_addr(),
+        base_addr: m.range.start_addr(),
+    })
+}
+
+// impl Into<[MemoryEntry] for bootloader::bootinfo::MemoryMap {
+//
+// }
+
+// impl From<bootloader::bootinfo::MemoryMap> for [MemoryEntry] {
+//     fn from(value: bootloader::bootinfo::MemoryMap) -> Self {
+//         value.
+//     }
+// }

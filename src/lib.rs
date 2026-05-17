@@ -11,8 +11,6 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
-use crate::multiboot::BootInformationFormat;
-
 pub mod memory;
 
 pub mod allocator;
@@ -24,83 +22,9 @@ pub mod multiboot;
 pub mod pic;
 pub mod port;
 pub mod serial;
+pub mod spinlock;
 pub mod vga_buffer;
 pub mod volatile;
-
-//use memory::FrameAllocator;
-
-// #[cfg(not(feature = "test_env"))]
-#[unsafe(no_mangle)]
-pub extern "C" fn k_main(multiboot_information_address: usize, phys_mem_offset: u64) -> ! {
-    vga_println!("Hello from rustland!");
-    init();
-
-    let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
-
-    let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
-    println!("{:#?}", elf);
-
-    let k_start = elf.get_sections().map(|s| s.start_addr()).min().unwrap() as usize;
-    let k_end = elf.get_sections().map(|s| s.end_addr()).max().unwrap() as usize;
-    println!("kernl start: {:#x}, end: {:#x}", k_start, k_end);
-
-    let m_start = bif.start_addr() as usize;
-    let m_end = bif.end_addr() as usize;
-    println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
-
-    use x86_64::VirtAddr;
-
-    let phys_mem_offset = VirtAddr::new(phys_mem_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
-
-    let mut frame_allocator = unsafe {
-        memory::BootInfoFrameAllocator::init(
-            bif.get::<multiboot::MemoryMap>().expect("can get mem"),
-            k_start as u64..m_end as u64,
-        )
-    };
-
-    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
-
-    use alloc::{rc::Rc, vec};
-
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    vga_println!(
-        "current reference count is {}",
-        Rc::strong_count(&cloned_reference)
-    );
-    core::mem::drop(reference_counted);
-    vga_println!(
-        "reference count is {} now",
-        Rc::strong_count(&cloned_reference)
-    );
-
-    #[cfg(test)]
-    test_main();
-
-    // let bs = b"hello from rustland!";
-    // let color = 0x
-    //
-    // let buffer_ptr = (0xb8000 + 1988) as *mut _;
-    // unsafe { *buffer_ptr = [0x1f67] };
-
-    vga_println!("Finished");
-    hlt_loop();
-}
-
-// #[unsafe(no_mangle)]
-// pub extern "C" fn kernel_main() {}
-//
-// #[lang = "eh_personality"]
-// #[unsafe(no_mangle)]
-// pub extern "C" fn eh_personality() {}
-
-// #[lang = "panic_fmt"]
-// #[no_mangle]
-// pub extern "C" fn panic_fmt() -> ! {
-//     loop {}
-// }
 
 #[macro_export]
 macro_rules! print {
@@ -158,13 +82,47 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
     #[allow(clippy::empty_loop)]
     loop {}
 }
-//
+
 pub fn hlt_loop() -> ! {
     use core::arch::asm;
     loop {
         // Safe since it cannot possibly compromise memory safety
         unsafe { asm!("hlt") }
     }
+}
+
+pub fn init() {
+    gdt::init();
+    interrupts::init_idt();
+    unsafe { interrupts::PICS.lock().initialize() };
+    x86_64::instructions::interrupts::enable();
+}
+
+#[cfg(test)]
+use bootloader::{BootInfo, entry_point};
+
+#[cfg(test)]
+entry_point!(test_kernel_main);
+
+/// Entry point for `cargo xtest`
+#[cfg(test)]
+fn test_kernel_main(_boot_info: &'static BootInfo) -> ! {
+    init();
+    test_main();
+    hlt_loop();
+}
+
+// #[cfg(not(test))]
+// #[panic_handler]
+// fn panic(info: &PanicInfo) -> ! {
+//     println!("{}", info);
+//     hlt_loop();
+// }
+
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    test_panic_handler(info)
 }
 
 pub fn test_runner(tests: &[&dyn Testable]) {
@@ -181,36 +139,3 @@ pub fn test_panic_handler(info: &PanicInfo) -> ! {
     serial_println!("{:#?}\n", info);
     exit_qemu(QemuExitCode::Failed);
 }
-
-// #[cfg(all(feature = "kernel_panic", not(test)))]
-//#[cfg(not(feature = "test_env"))]
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    #[cfg(test)]
-    {
-        test_panic_handler(info)
-    }
-    #[cfg(not(test))]
-    {
-        println!("{:#?}", info);
-        hlt_loop();
-    }
-}
-
-pub fn init() {
-    gdt::init();
-    interrupts::init_idt();
-    unsafe { interrupts::PICS.lock().initialize() };
-    x86_64::instructions::interrupts::enable();
-}
-//
-// #[cfg(test)]
-// bootloader::entry_point!(test_kernel_main);
-//
-// #[cfg(test)]
-// fn test_kernel_main(_boot_info: &'static bootloader::BootInfo) -> ! {
-//     init();
-//     test_main();
-//
-//     hlt_loop();
-// }

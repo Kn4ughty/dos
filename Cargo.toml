@@ -3,14 +3,19 @@ name = "os"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
+[[bin]]
 name = "os"
-crate-type = ["rlib", "staticlib"]
-test = false
+test = true
+bench = false
+
+# [lib]
+# name = "os"
+# crate-type = ["rlib", "staticlib"]
+# test = false
 
 [features]
-default = []
-test_env = []
+default = ["bootimage"]
+bootimage = []
 
 
 # [[test]]
@@ -23,6 +28,7 @@ test_env = []
 # harness = false
 
 [dependencies]
+bootloader = { version = "0.9", features = ["map_physical_memory"] }
 spin = "0.5.2"
 x86_64 = "0.15.4"
 pc-keyboard = "0.8.0"

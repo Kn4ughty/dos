@@ -1,12 +1,9 @@
-use crate::multiboot::{MemoryMap, MemoryRegionType};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB,
     },
 };
-
-use core::{ops::Range, panic};
 
 /// # Safety
 /// This function must be called only once to avoid aliasing `&mut`
@@ -85,15 +82,6 @@ fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Opt
 
 type FrameIterator = impl Iterator<Item = PhysFrame>;
 
-// pub struct BootInfoFrameAllocator<I>
-// where
-//     I: Iterator<Item = PhysFrame>,
-// {
-//     memory_map: &'static MemoryMap,
-//     next: usize,
-//     iterator: I,
-// }
-
 pub struct BootInfoFrameAllocator {
     iterator: FrameIterator,
 }
@@ -105,27 +93,25 @@ impl BootInfoFrameAllocator {
     /// This function is unsafe because the caller must guarantee that the passed memory map is
     /// valid. The main requirement is that all frames that are mared `USABLE` in it are really
     /// unused.
-    pub unsafe fn init(memory_map: &'static MemoryMap, reserverd_range: Range<u64>) -> Self {
+    pub unsafe fn init(memory_map: &'static bootloader::bootinfo::MemoryMap) -> Self {
         BootInfoFrameAllocator {
-            iterator: Self::useable_frames(memory_map, reserverd_range),
+            iterator: Self::useable_frames(memory_map),
         }
     }
 
     #[define_opaque(FrameIterator)]
-    fn useable_frames(
-        memory_map: &'static MemoryMap,
-        reserverd_range: Range<u64>,
-    ) -> FrameIterator {
-        let regions = memory_map.get_all_entries();
-        let usable_regions = regions.filter(|r| r.typ == MemoryRegionType::Available);
+    fn useable_frames(memory_map: &'static bootloader::bootinfo::MemoryMap) -> FrameIterator {
+        let regions = memory_map.iter();
+        let usable_regions =
+            regions.filter(|r| r.region_type == bootloader::bootinfo::MemoryRegionType::Usable);
 
-        let addr_ranges = usable_regions.map(|r| r.base_addr..(r.base_addr + r.length));
-        let frame_addresses = addr_ranges
-            .flat_map(|r| {
-                assert!(r.start & 4096 == 0);
-                r.step_by(4096)
-            })
-            .filter(move |r| !reserverd_range.contains(r)); // 4kiB pages
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+
+        let frame_addresses = addr_ranges.flat_map(|r| {
+            // assert!(r.start & 4096 == 0);
+            r.step_by(4096)
+        });
+        // .filter(move |r| !reserverd_range.contains(r)); // 4kiB pages
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
     }
 }
