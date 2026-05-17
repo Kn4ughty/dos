@@ -17,7 +17,7 @@ pub struct MutexGuard<'a, T> {
 }
 
 impl<T> Mutex<T> {
-    pub fn new(data: T) -> Mutex<T> {
+    pub const fn new(data: T) -> Mutex<T> {
         Mutex {
             lock: AtomicBool::new(false),
             data: UnsafeCell::new(data),
@@ -54,6 +54,12 @@ impl<'a, T> core::ops::Deref for MutexGuard<'a, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.data
+    }
+}
+
+impl<'a, T> core::ops::DerefMut for MutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
     }
 }
 

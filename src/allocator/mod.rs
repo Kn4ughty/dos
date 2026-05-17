@@ -5,11 +5,11 @@ use x86_64::{
     },
 };
 
-
-
 pub mod fixed_size_block;
 
 use fixed_size_block::FixedSizeBlockAllocator;
+
+use crate::spinlock::{Mutex, MutexGuard};
 
 pub const HEAP_START: usize = 0x_4444_4444_0000; // Easily recognisable virtual address
 pub const HEAP_SIZE: usize = 100 * 1024; // 100KiB
@@ -18,17 +18,17 @@ pub const HEAP_SIZE: usize = 100 * 1024; // 100KiB
 static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
 pub struct Locked<A> {
-    inner: spin::Mutex<A>,
+    inner: Mutex<A>,
 }
 
 impl<A> Locked<A> {
     pub const fn new(inner: A) -> Self {
         Locked {
-            inner: spin::Mutex::new(inner),
+            inner: Mutex::new(inner),
         }
     }
 
-    pub fn lock(&self) -> spin::MutexGuard<'_, A> {
+    pub fn lock(&self) -> MutexGuard<'_, A> {
         self.inner.lock()
     }
 }

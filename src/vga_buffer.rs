@@ -1,5 +1,6 @@
+use crate::spinlock::Mutex;
+
 use lazy_static::lazy_static;
-use spin::Mutex;
 
 use crate::port::Port;
 use crate::volatile::Volatile;

@@ -6,14 +6,14 @@ use crate::pic::ChainedPics;
 use crate::{gdt, hlt_loop};
 use crate::{println, vga_print, vga_println};
 
-use spin;
+use crate::spinlock::Mutex;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
 // Safety. The offsets need to be correct
-pub static PICS: spin::Mutex<ChainedPics> =
-    spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
+pub static PICS: Mutex<ChainedPics> =
+    Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -83,7 +83,6 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
-    use spin::Mutex;
 
     use crate::port::Port;
 
@@ -105,12 +104,13 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     // https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
 
     if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
-        && let Some(key) = keyboard.process_keyevent(key_event) {
-            match key {
-                DecodedKey::Unicode(c) => vga_print!("{}", c),
-                DecodedKey::RawKey(raw) => vga_print!("{:?}", raw),
-            }
+        && let Some(key) = keyboard.process_keyevent(key_event)
+    {
+        match key {
+            DecodedKey::Unicode(c) => vga_print!("{}", c),
+            DecodedKey::RawKey(raw) => vga_print!("{:?}", raw),
         }
+    }
 
     unsafe {
         PICS.lock()

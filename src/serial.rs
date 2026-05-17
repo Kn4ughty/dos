@@ -1,6 +1,6 @@
+use crate::spinlock::Mutex;
 /// See https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port for more info
 use lazy_static::lazy_static;
-use spin::Mutex;
 
 use crate::port::Port;
 
