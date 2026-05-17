@@ -52,19 +52,13 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    use alloc::{rc::Rc, vec};
+    // println!("{:#0x}", os::pci::pci_config_read_word(0, 0, 0, 0));
+    // println!("{:#0x}", os::pci::pci_config_read_word(0, 0, 0, 2));
 
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    println!(
-        "current reference count is {}",
-        Rc::strong_count(&cloned_reference)
-    );
-    core::mem::drop(reference_counted);
-    println!(
-        "reference count is {} now",
-        Rc::strong_count(&cloned_reference)
-    );
+    let mut pci_device = os::pci::PCIDevice::new(0, 0);
+    println!("vendor: {:#0x}", pci_device.check_vendor());
+    println!("class:  {:#0x}", pci_device.get_class_code());
+    println!("hd typ: {:#0x}", pci_device.get_header_type());
 
     #[cfg(test)]
     test_main();

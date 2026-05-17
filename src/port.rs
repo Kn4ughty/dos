@@ -58,6 +58,18 @@ impl PortWrite for u32 {
     }
 }
 
+impl PortRead for u32 {
+    #[inline]
+    unsafe fn read_from_port(port: u16) -> u32 {
+        let mut ret: u32 = 0;
+        unsafe {
+            asm!("in eax, dx", out("eax") ret, in("dx") port,
+            options(nomem, preserves_flags, nostack));
+        }
+        ret
+    }
+}
+
 // T is output type, A is access
 pub struct PortGeneric<T, A> {
     port: u16,
