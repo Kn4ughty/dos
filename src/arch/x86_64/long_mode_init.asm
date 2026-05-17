@@ -14,8 +14,14 @@ long_mode_start:
 
     mov rsi, PAGE_TABLE_OFFSET
 
-    extern rust_main
-    call rust_main
+
+    %ifdef TEST_BUILD
+        extern ktest_main
+        call ktest_main
+    %else
+        extern k_main
+        call k_main
+    %endif
 
     mov rax, 0x2f592f412f4b2f4f
     mov qword [0xb8000], rax

@@ -4,51 +4,8 @@
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
-// use os::vga_println;
+extern crate alloc;
 
-// extern crate alloc;
-// use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
-
-// use os::{allocator, memory, println, vga_println};
-// use x86_64::{VirtAddr, structures::paging::Page};
-
-// fn falksjdkernel_main() -> ! {
-//     os::init();
-//     // vga_println!("Hello world!");
-//     //
-//     // vga_println!("{:?}", boot_info);
-//     //
-//     // let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-//     // let mut mapper = unsafe { memory::init(phys_mem_offset) };
-//     // let mut frame_allocator =
-//     //     unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
-//     //
-//     // allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
-//     //
-//     // let reference_counted = Rc::new(vec![1, 2, 3]);
-//     // let cloned_reference = reference_counted.clone();
-//     // vga_println!(
-//     //     "current reference count is {}",
-//     //     Rc::strong_count(&cloned_reference)
-//     // );
-//     // core::mem::drop(reference_counted);
-//     // vga_println!(
-//     //     "reference count is {} now",
-//     //     Rc::strong_count(&cloned_reference)
-//     // );
-//     //
-//     // #[cfg(test)]
-//     // test_main();
-//     //
-//     vga_println!("Did not crash. End of main");
-//     os::hlt_loop();
-// }
-//
-// #[cfg(test)]
-// use core::panic::PanicInfo;
-// #[cfg(test)]
-// #[panic_handler]
-// fn panic(info: &PanicInfo) -> ! {
-//     os::test_panic_handler(info);
-//     loop {}
-// }
+#[allow(unused_imports)]
+#[allow(clippy::single_component_path_imports)]
+use os;

@@ -53,6 +53,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "linked_list_allocator",
+ "os",
  "pc-keyboard",
  "spin 0.5.2",
  "x86_64",

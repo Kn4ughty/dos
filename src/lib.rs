@@ -29,8 +29,9 @@ pub mod volatile;
 
 //use memory::FrameAllocator;
 
+// #[cfg(not(feature = "test_env"))]
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_main(multiboot_information_address: usize, phys_mem_offset: u64) -> ! {
+pub extern "C" fn k_main(multiboot_information_address: usize, phys_mem_offset: u64) -> ! {
     vga_println!("Hello from rustland!");
     init();
 
@@ -47,7 +48,7 @@ pub extern "C" fn rust_main(multiboot_information_address: usize, phys_mem_offse
     let m_end = bif.end_addr() as usize;
     println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
 
-    use x86_64::{VirtAddr, structures::paging::Page};
+    use x86_64::VirtAddr;
 
     let phys_mem_offset = VirtAddr::new(phys_mem_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
@@ -59,29 +60,21 @@ pub extern "C" fn rust_main(multiboot_information_address: usize, phys_mem_offse
         )
     };
 
-    let page = Page::containing_address(VirtAddr::new(0xdeadbeaf000));
-    memory::create_example_map(page, &mut mapper, &mut frame_allocator);
+    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    // write the string `New!` to the screen through the new mapping
-    let page_ptr: *mut u64 = page.start_address().as_mut_ptr();
-    unsafe { page_ptr.offset(415).write_volatile(0x_f021_f077_f065_f04e) };
+    use alloc::{rc::Rc, vec};
 
-    //
-    // allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
-    //
-    // use alloc::{rc::Rc, vec};
-    //
-    // let reference_counted = Rc::new(vec![1, 2, 3]);
-    // let cloned_reference = reference_counted.clone();
-    // vga_println!(
-    //     "current reference count is {}",
-    //     Rc::strong_count(&cloned_reference)
-    // );
-    // core::mem::drop(reference_counted);
-    // vga_println!(
-    //     "reference count is {} now",
-    //     Rc::strong_count(&cloned_reference)
-    // );
+    let reference_counted = Rc::new(vec![1, 2, 3]);
+    let cloned_reference = reference_counted.clone();
+    vga_println!(
+        "current reference count is {}",
+        Rc::strong_count(&cloned_reference)
+    );
+    core::mem::drop(reference_counted);
+    vga_println!(
+        "reference count is {} now",
+        Rc::strong_count(&cloned_reference)
+    );
 
     #[cfg(test)]
     test_main();
@@ -189,17 +182,19 @@ pub fn test_panic_handler(info: &PanicInfo) -> ! {
     exit_qemu(QemuExitCode::Failed);
 }
 
-#[cfg(test)]
+// #[cfg(all(feature = "kernel_panic", not(test)))]
+//#[cfg(not(feature = "test_env"))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    test_panic_handler(info)
-}
-
-#[cfg(not(test))]
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    println!("{:#?}", info);
-    hlt_loop();
+    #[cfg(test)]
+    {
+        test_panic_handler(info)
+    }
+    #[cfg(not(test))]
+    {
+        println!("{:#?}", info);
+        hlt_loop();
+    }
 }
 
 pub fn init() {

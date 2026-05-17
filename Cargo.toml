@@ -6,19 +6,21 @@ edition = "2024"
 [lib]
 name = "os"
 crate-type = ["rlib", "staticlib"]
-
-[[bin]]
-name = "os"
 test = false
-bench = false
 
-[[test]]
-name = "should_panic"
-harness = false
+[features]
+default = []
+test_env = []
 
-[[test]]
-name = "stack_overflow"
-harness = false
+
+# [[test]]
+# name = "should_panic"
+# harness = false
+# default-features = false
+#
+# [[test]]
+# name = "stack_overflow"
+# harness = false
 
 [dependencies]
 spin = "0.5.2"
@@ -40,3 +42,6 @@ run-args = ["-serial", "stdio"]
 test-success-exit-code = 33
 test-timeout = 300 #seconds
 
+
+[dev-dependencies]
+os = { path = ".", default-features = false }
