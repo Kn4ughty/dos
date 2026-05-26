@@ -14,6 +14,41 @@ pub struct ReadWriteAccess(());
 impl PortReadAccess for ReadWriteAccess {}
 impl PortWriteAccess for ReadWriteAccess {}
 
+// T is output type, A is access
+pub struct PortGeneric<T, A> {
+    port: u16,
+    phantom: PhantomData<(T, A)>,
+}
+
+pub type Port<T> = PortGeneric<T, ReadWriteAccess>;
+pub type PortReadOnly<T> = PortGeneric<T, ReadOnlyAccess>;
+pub type PortWriteOnly<T> = PortGeneric<T, WriteOnlyAccess>;
+
+impl<T, A> PortGeneric<T, A> {
+    pub const fn new(port: u16) -> PortGeneric<T, A> {
+        PortGeneric {
+            port,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: PortRead, A: PortReadAccess> PortGeneric<T, A> {
+    /// # Safety
+    /// The port could have side effects that violate memory safety
+    #[inline]
+    pub unsafe fn read(&mut self) -> T {
+        unsafe { T::read_from_port(self.port) }
+    }
+}
+
+impl<T: PortWrite, A: PortWriteAccess> PortGeneric<T, A> {
+    /// ## Safety
+    /// The port could have side effects that violate memory safety
+    pub unsafe fn write(&mut self, value: T) {
+        unsafe { T::write_to_port(self.port, value) }
+    }
+}
 pub trait PortRead {
     /// # Safety
     /// Implementation must actually read from port
@@ -67,41 +102,5 @@ impl PortRead for u32 {
             options(nomem, preserves_flags, nostack));
         }
         ret
-    }
-}
-
-// T is output type, A is access
-pub struct PortGeneric<T, A> {
-    port: u16,
-    phantom: PhantomData<(T, A)>,
-}
-
-pub type Port<T> = PortGeneric<T, ReadWriteAccess>;
-pub type PortReadOnly<T> = PortGeneric<T, ReadOnlyAccess>;
-pub type PortWriteOnly<T> = PortGeneric<T, ReadWriteAccess>;
-
-impl<T, A> PortGeneric<T, A> {
-    pub const fn new(port: u16) -> PortGeneric<T, A> {
-        PortGeneric {
-            port,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<T: PortRead, A: PortReadAccess> PortGeneric<T, A> {
-    /// # Safety
-    /// The port could have side effects that violate memory safety
-    #[inline]
-    pub unsafe fn read(&mut self) -> T {
-        unsafe { T::read_from_port(self.port) }
-    }
-}
-
-impl<T: PortWrite, A: PortWriteAccess> PortGeneric<T, A> {
-    /// ## Safety
-    /// The port could have side effects that violate memory safety
-    pub unsafe fn write(&mut self, value: T) {
-        unsafe { T::write_to_port(self.port, value) }
     }
 }

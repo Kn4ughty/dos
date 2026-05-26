@@ -201,8 +201,8 @@ macro_rules! vga_print {
 
 #[macro_export]
 macro_rules! vga_println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+    () => ($crate::vga_print!("\n"));
+    ($($arg:tt)*) => ($crate::vga_print!("{}\n", format_args!($($arg)*)));
 }
 
 #[doc(hidden)]

@@ -1,7 +1,7 @@
 use alloc::alloc::GlobalAlloc;
 use core::{alloc::Layout, mem, ptr::NonNull};
 
-use super::Locked;
+use super::Mutex;
 
 const BLOCK_SIZES: &[usize] = &[8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
@@ -48,7 +48,7 @@ impl FixedSizeBlockAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
+unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut allocator = self.lock();
 

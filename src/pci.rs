@@ -70,6 +70,7 @@ impl PCIDevice {
     }
 
     pub fn get_class_code(&mut self) -> u8 {
+        // maybe wrong
         self.read_word(0, 0x4) as u8
     }
 
