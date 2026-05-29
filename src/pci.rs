@@ -93,6 +93,7 @@ impl PCIDevice {
             class_code: ((self.read_word(bus, 0, 0xA) >> 8) & 0xFF) as u8,
             subclass: (self.read_word(bus, 0, 0xa) & 0xFF) as u8,
             header_type: self.get_header_type(bus),
+            base_addr0: self.read_dword(bus, 0, 0x10),
         })
     }
 }
@@ -110,4 +111,6 @@ pub struct PCIDeviceHeader {
     class_code: u8,
     subclass: u8,
     header_type: u8,
+    /// Pointer to mmio address
+    pub base_addr0: u32,
 }

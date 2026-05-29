@@ -53,15 +53,17 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    use alloc::boxed::Box;
-    let b1 = Box::new(1);
-    let b2 = Box::new(2);
-    println!("{:#?}", Box::as_ptr(&b1));
-    println!("{:#?}", Box::as_ptr(&b2));
     // This seems to be a PCI controller.
     // https://theretroweb.com/chips/2755
-    let mut pci_device = os::pci::PCIDevice::new(0, 1);
-    println!("{:#?}", pci_device.get_header());
+    for bus in 0..=255 {
+        for device in 0..=31 {
+            let mut pci_device = os::pci::PCIDevice::new(bus, device);
+            if let Some(header) = pci_device.get_header() {
+                println!("{:#?}", header);
+                println!(" {:#0x}", header.base_addr0);
+            }
+        }
+    }
 
     #[cfg(test)]
     test_main();
