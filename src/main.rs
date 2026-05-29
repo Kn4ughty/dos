@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(box_as_ptr)]
 #![feature(custom_test_frameworks)]
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -52,13 +53,15 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    // println!("{:#0x}", os::pci::pci_config_read_word(0, 0, 0, 0));
-    // println!("{:#0x}", os::pci::pci_config_read_word(0, 0, 0, 2));
-
-    let mut pci_device = os::pci::PCIDevice::new(0, 0);
-    println!("vendor: {:#0x}", pci_device.check_vendor());
-    println!("class:  {:#0x}", pci_device.get_class_code());
-    println!("hd typ: {:#0x}", pci_device.get_header_type());
+    use alloc::boxed::Box;
+    let b1 = Box::new(1);
+    let b2 = Box::new(2);
+    println!("{:#?}", Box::as_ptr(&b1));
+    println!("{:#?}", Box::as_ptr(&b2));
+    // This seems to be a PCI controller.
+    // https://theretroweb.com/chips/2755
+    let mut pci_device = os::pci::PCIDevice::new(0, 1);
+    println!("{:#?}", pci_device.get_header());
 
     #[cfg(test)]
     test_main();
