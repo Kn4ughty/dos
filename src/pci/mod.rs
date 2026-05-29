@@ -6,6 +6,8 @@ use crate::spinlock::Mutex;
 mod class_codes;
 pub use class_codes::ClassCode;
 
+mod intel_e1000e;
+
 const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
@@ -81,6 +83,10 @@ impl PCIDevice {
     pub fn get_header(&mut self) -> Option<PCIDeviceHeader> {
         let bus: &mut PCIBusDevice = &mut PCI_BUS.lock();
 
+        // Performance Note!
+        // It would be signficantly faster to use read_dword, and do bitmath
+        // instead of read_word. This is because inb is a very slow call.
+
         let vendor_id = {
             let t = self.read_word(bus, 0, 0);
             if t != 0xFFFF { Some(t) } else { None }
@@ -91,7 +97,7 @@ impl PCIDevice {
             device_id: self.read_word(bus, 0, 0x2),
             command: self.read_word(bus, 0, 0x4),
             status: self.read_word(bus, 0, 0x6),
-            revision_id: (self.read_word(bus, 0, 0x6) & 0xFF) as u8,
+            revision_id: (self.read_word(bus, 0, 0x8) & 0xFF) as u8,
             prog_if: ((self.read_word(bus, 0, 0x8) >> 8) & 0xFF) as u8,
             class: {
                 let class_code = ((self.read_word(bus, 0, 0xA) >> 8) & 0xFF) as u8;

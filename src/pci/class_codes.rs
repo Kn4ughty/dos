@@ -3,7 +3,7 @@ use crate::tryfrom::{tryfrom, tryfrom2arg};
 tryfrom2arg! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum ClassCode {
         Unclassified(UnclassifiedSubClass) = 0x0,
         MassStorageController(MassStorageControllerSubClass) = 0x1,
@@ -34,7 +34,7 @@ tryfrom2arg! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum UnclassifiedSubClass {
         NonVgaCompatible = 0x00,
         VgaCompatible = 0x01,
@@ -45,7 +45,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum MassStorageControllerSubClass {
         ScsiBus = 0x00,
         Ide = 0x01,
@@ -64,7 +64,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum NetworkControllerSubClass {
         Ethernet = 0x00,
         // Literally what are any of these lol. My dad would know
@@ -84,7 +84,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum DisplayControllerSubClass {
         VgaCompatible = 0x00,
         Xga = 0x01,
@@ -97,7 +97,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum MultimediaControllerSubClass {
         Video = 0x00,
         Audio = 0x01,
@@ -111,7 +111,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum MemoryControllerSubClass {
         Ram = 0x00,
         Flash = 0x01,
@@ -123,7 +123,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum BridgeSubClass {
         Host = 0x00,
         Isa = 0x01,
@@ -144,7 +144,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum SimpleCommunicationControllerSubClass {
         Serial = 0x00,
         Parallel = 0x01,
@@ -160,7 +160,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum BaseSystemPeripheralSubClass {
         Pic = 0x00,
         Dma = 0x01,
@@ -177,7 +177,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum InputDeviceControllerSubClass {
         Keyboard = 0x00,
         DigitizerPen = 0x01,
@@ -192,7 +192,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum DockingStationSubClass {
         Generic = 0x00,
         Other = 0x80,
@@ -203,7 +203,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum ProcessorSubClass {
         Intel386 = 0x00,
         Intel486 = 0x01,
@@ -221,7 +221,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum SerialBusControllerSubClass {
         FireWire = 0x00,
         AccessBus = 0x01,
@@ -241,7 +241,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum WirelessControllerSubClass {
         Irda = 0x00,
         ConsumerIr = 0x01,
@@ -258,7 +258,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum SatelliteCommunicationControllerSubClass {
         Tv = 0x01,
         Audio = 0x02,
@@ -271,7 +271,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum EncryptionControllerSubClass {
         NetworkAndComputing = 0x00,
         Entertainment = 0x10,
@@ -283,7 +283,7 @@ tryfrom! {
 tryfrom! {
     #[non_exhaustive]
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum SignalProcessingControllerSubClass {
         DpioModules = 0x00,
         PerformanceCounters = 0x01,
@@ -294,7 +294,7 @@ tryfrom! {
     u8
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NoSubClass {}
 
 // This is so stupid

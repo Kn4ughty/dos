@@ -1,3 +1,4 @@
+// copied from https://docs.rs/enum-try-from/latest/src/enum_try_from/lib.rs.html#187-207
 macro_rules! tryfrom {
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($variant:ident = $val:expr,)*
@@ -22,7 +23,8 @@ macro_rules! tryfrom {
 }
 pub(crate) use tryfrom;
 
-// This did my head in to write
+// This did my head in to write.
+// Rust macros are hard
 macro_rules! tryfrom2arg {
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($variant:ident ($name2:ident) = $val:expr,)*
