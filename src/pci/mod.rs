@@ -3,6 +3,9 @@
 use crate::port::Port;
 use crate::spinlock::Mutex;
 
+mod class_codes;
+pub use class_codes::ClassCode;
+
 const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
@@ -90,8 +93,12 @@ impl PCIDevice {
             status: self.read_word(bus, 0, 0x6),
             revision_id: (self.read_word(bus, 0, 0x6) & 0xFF) as u8,
             prog_if: ((self.read_word(bus, 0, 0x8) >> 8) & 0xFF) as u8,
-            class_code: ((self.read_word(bus, 0, 0xA) >> 8) & 0xFF) as u8,
-            subclass: (self.read_word(bus, 0, 0xa) & 0xFF) as u8,
+            class: {
+                let class_code = ((self.read_word(bus, 0, 0xA) >> 8) & 0xFF) as u8;
+                let subclass = (self.read_word(bus, 0, 0xa) & 0xFF) as u8;
+
+                ClassCode::try_from((class_code, subclass)).ok()?
+            },
             header_type: self.get_header_type(bus),
             base_addr0: self.read_dword(bus, 0, 0x10),
         })
@@ -108,8 +115,7 @@ pub struct PCIDeviceHeader {
     status: u16,
     revision_id: u8,
     prog_if: u8,
-    class_code: u8,
-    subclass: u8,
+    class: class_codes::ClassCode,
     header_type: u8,
     /// Pointer to mmio address
     pub base_addr0: u32,
