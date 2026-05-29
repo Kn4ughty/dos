@@ -21,30 +21,6 @@ pub trait TagType: private::Sealed {
     }
 }
 
-macro_rules! tryfrom {
-    ($(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($variant:ident = $val:expr,)*
-    }) => {
-        $(#[$meta])*
-        $vis enum $name {
-            $($variant = $val,)*
-        }
-
-
-        impl TryFrom<u32> for $name {
-            type Error = u32;
-
-            fn try_from(value: u32) -> Result<Self, Self::Error> {
-                match value {
-                    $(x if x == $name::$variant as u32 => Ok($name::$variant),)*
-                    _ => Err(value)
-                }
-            }
-        }
-    }
-}
-pub(crate) use tryfrom;
-
 #[derive(Debug)]
 #[repr(C, align(8))]
 pub struct BootInformationFormat {

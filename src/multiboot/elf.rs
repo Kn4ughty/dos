@@ -4,7 +4,9 @@
 /// \ᵔᵕᵔ/
 ///  ||
 ///  /\
-use super::{TagHeader, TagType, private::Sealed, tryfrom};
+use super::{TagHeader, TagType, private::Sealed};
+
+use crate::tryfrom::tryfrom;
 
 // https://wiki.osdev.org/ELF
 
@@ -176,5 +178,6 @@ tryfrom! {
         Rel = 9,
         Unknown = u32::MAX,
         // Who cares about the rest (not me)
-    }
+    },
+    u32
 }

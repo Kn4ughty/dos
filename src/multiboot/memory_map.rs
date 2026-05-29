@@ -1,4 +1,5 @@
-use super::{TagError, TagType, private::Sealed, tryfrom};
+use super::{TagError, TagType, private::Sealed};
+use crate::tryfrom::tryfrom;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -58,7 +59,8 @@ tryfrom! {
         PreserveForHibernation = 4,
         DefectiveRam = 5,
         Unknown = 99,
-    }
+    },
+    u32
 }
 
 impl TryFrom<&RawMemoryEntry> for MemoryEntry {

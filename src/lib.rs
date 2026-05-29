@@ -17,7 +17,7 @@ pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod pci;
-//pub mod _memory;
+pub mod tryfrom;
 
 pub mod multiboot;
 pub mod pic;
