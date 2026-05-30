@@ -27,6 +27,7 @@ fn main(boot_info: &'static BootInfo) -> ! {
 
     test_main();
 
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 

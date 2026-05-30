@@ -9,7 +9,6 @@ const BUFFER_HEIGHT: usize = 25;
 const BUFFER_WIDTH: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 #[repr(u8)]
 pub enum Colour {
     Black = 0,
@@ -68,7 +67,7 @@ impl Cursor {
         }
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     fn disable(&mut self) {
         // Safety! is ok
         unsafe {

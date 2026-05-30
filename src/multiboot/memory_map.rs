@@ -106,7 +106,7 @@ impl core::fmt::Debug for MemoryEntry {
     }
 }
 
-#[allow(unused)]
+#[expect(unused)]
 fn br_to_r(br: bootloader::bootinfo::MemoryRegionType) -> MemoryRegionType {
     // not bothering with all
     match br {
@@ -116,7 +116,7 @@ fn br_to_r(br: bootloader::bootinfo::MemoryRegionType) -> MemoryRegionType {
     }
 }
 
-#[allow(unused)]
+#[expect(unused)]
 pub fn from_bootimage(
     mmap: &'static bootloader::bootinfo::MemoryMap,
 ) -> impl Iterator<Item = MemoryEntry> + 'static {

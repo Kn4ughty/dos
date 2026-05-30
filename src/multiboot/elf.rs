@@ -54,8 +54,8 @@ impl ELFSymbols {
         let sthp = unsafe { headers_ptr.add(self.string_section_header_index as usize) };
 
         ElfSectionIter {
-            current_section: self.section_headers.as_ptr() as *const _,
-            string_table_header: sthp as *const _,
+            current_section: self.section_headers.as_ptr() as *const u8,
+            string_table_header: sthp as *const u8,
             entry_size: self.entry_size,
             remaining_sections: self.num_sections,
         }

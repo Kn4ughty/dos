@@ -41,6 +41,7 @@ pub struct ScancodeStream {
     _private: (),
 }
 
+#[expect(clippy::new_without_default)]
 impl ScancodeStream {
     pub fn new() -> Self {
         SCANCODE_QUEUE

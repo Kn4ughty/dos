@@ -57,8 +57,8 @@ impl BootInformationFormat {
 
     fn tags(&self) -> TagIter {
         TagIter {
-            end_address: self as *const _ as usize + self.total_size as usize,
-            current: &self.first_tag as *const _,
+            end_address: self as *const BootInformationFormat as usize + self.total_size as usize,
+            current: &self.first_tag as *const TagHeader,
         }
     }
 

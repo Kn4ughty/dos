@@ -30,7 +30,7 @@ impl PCIBusDevice {
             | ((slot as u32) << 11)
             | ((func as u32) << 8)
             | (offset & 0xFC) as u32
-            | (0x80000000);
+            | (0x8000_0000);
 
         unsafe {
             self.address.write(address);
@@ -43,7 +43,7 @@ impl PCIBusDevice {
             | ((slot as u32) << 11)
             | ((func as u32) << 8)
             | (offset & 0xFC) as u32
-            | (0x80000000);
+            | (0x8000_0000);
 
         unsafe {
             self.address.write(address);
@@ -112,7 +112,7 @@ impl PCIDevice {
 }
 
 #[derive(Debug)]
-#[allow(unused)]
+#[expect(unused)]
 pub struct PCIDeviceHeader {
     vendor_id: u16,
     device_id: u16,

@@ -5,7 +5,12 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
-// #![feature(trait_alias)]
+// Lints
+#![warn(clippy::pedantic)]
+#![allow(clippy::ptr_as_ptr)]
+#![deny(clippy::alloc_instead_of_core)]
+#![deny(clippy::allow_attributes)]
+#![deny(clippy::as_pointer_underscore)]
 
 extern crate alloc;
 
@@ -80,7 +85,7 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
     // Problem with using unreachable!() here is that the panic handler could call exit_qemu, leading
     // to an infinite loop of unreachable!()
     // This location _should_ be unreachable.
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 

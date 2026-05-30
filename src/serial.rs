@@ -70,12 +70,12 @@ impl Writer {
         Ok(())
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     fn serial_received(&mut self) -> bool {
         (Self::read_port(&mut self.p_line_status) & 1) == 1
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     fn read_serial(&mut self) -> char {
         while !self.serial_received() {
             core::hint::spin_loop();

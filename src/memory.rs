@@ -1,12 +1,11 @@
 use x86_64::{
     PhysAddr, VirtAddr,
-    structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB,
-    },
+    structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
 };
 
 /// # Safety
 /// This function must be called only once to avoid aliasing `&mut`
+#[expect(clippy::must_use_candidate)]
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     unsafe {
         let level_4_pagetable = active_level_4_table(physical_memory_offset);
@@ -44,6 +43,7 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`. Also, this function must be only called once
 /// to avoid aliasing `&mut` references (which is undefined behavior).
+#[must_use]
 pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
     translate_addr_inner(addr, physical_memory_offset)
 }
@@ -87,12 +87,13 @@ pub struct BootInfoFrameAllocator {
 }
 
 impl BootInfoFrameAllocator {
-    /// Create a FrameAllocator from the passed memory mjap
+    /// Create a `FrameAllocator` from the passed memory mjap
     ///
     /// # Safety
     /// This function is unsafe because the caller must guarantee that the passed memory map is
     /// valid. The main requirement is that all frames that are mared `USABLE` in it are really
     /// unused.
+    #[must_use]
     pub unsafe fn init(memory_map: &'static bootloader::bootinfo::MemoryMap) -> Self {
         BootInfoFrameAllocator {
             iterator: Self::useable_frames(memory_map),
@@ -122,28 +123,12 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     }
 }
 
-pub fn create_example_map(
-    page: Page,
-    mapper: &mut OffsetPageTable,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) {
-    use x86_64::structures::paging::PageTableFlags as Flags;
-
-    let frames = PhysFrame::containing_address(PhysAddr::new(0xb8000));
-    let flags = Flags::PRESENT | Flags::WRITABLE; // u64
-
-    let map_to_result = unsafe {
-        // FIXME: This is not safe since it will alias &mut. Only for testing
-        mapper.map_to(page, frames, flags, frame_allocator)
-    };
-    map_to_result.expect("map_to failed").flush();
-}
-
 /// Align the given address `addr` upwards to alignment `align`.
 ///
 /// Requires that `align` is a power of two.
+#[must_use]
 pub fn align_up(addr: usize, align: usize) -> usize {
-    debug_assert!((align & (align - 1)) == 0); // check align is power of two.
+    debug_assert_eq!((align & (align - 1)), 0); // check align is power of two.
     // e.x f(0b1000) = (0b1000 & (0b0111)) == 0 = true
     // i.e Checks if only one bit is set high
 

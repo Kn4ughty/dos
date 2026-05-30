@@ -2,7 +2,6 @@ use core::ptr;
 
 pub struct Volatile<T: Copy>(T);
 
-#[allow(unused)]
 impl<T: Copy> Volatile<T> {
     pub const fn new_const(val: T) -> Volatile<T> {
         Volatile(val)
