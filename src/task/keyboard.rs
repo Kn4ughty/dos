@@ -27,12 +27,12 @@ use crate::println;
 pub(crate) fn add_scancode(scancode: u8) {
     if let Ok(queue) = SCANCODE_QUEUE.try_get() {
         if queue.push(scancode).is_err() {
-            println!("WARNING: scancode queue full; dropping keyboard input")
+            println!("WARNING: scancode queue full; dropping keyboard input");
         } else {
             WAKER.wake();
         }
     } else {
-        println!("WARNING: Scancode queue uninitialised")
+        println!("WARNING: Scancode queue uninitialised");
     }
 }
 
@@ -43,6 +43,8 @@ pub struct ScancodeStream {
 
 #[expect(clippy::new_without_default)]
 impl ScancodeStream {
+    /// # Panics
+    /// Panics if scancode stream is already created. i.e this func must be called exactly once.
     pub fn new() -> Self {
         SCANCODE_QUEUE
             .try_init_once(|| ArrayQueue::new(QUEUE_SIZE))

@@ -61,20 +61,20 @@ impl<T> Mutex<T> {
     }
 }
 
-impl<'a, T> core::ops::Deref for MutexGuard<'a, T> {
+impl<T> core::ops::Deref for MutexGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.data
     }
 }
 
-impl<'a, T> core::ops::DerefMut for MutexGuard<'a, T> {
+impl<T> core::ops::DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.data
     }
 }
 
-impl<'a, T> Drop for MutexGuard<'a, T> {
+impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.store(false, Ordering::Release);
     }

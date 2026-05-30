@@ -13,6 +13,7 @@ pub struct Executor {
 
 #[expect(clippy::new_without_default)]
 impl Executor {
+    #[must_use]
     pub fn new() -> Self {
         Executor {
             tasks: BTreeMap::new(),
@@ -21,20 +22,25 @@ impl Executor {
         }
     }
 
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "Panic is internal logic bug. Does not matter to caller"
+    )]
     pub fn spawn(&mut self, task: Task) {
         let task_id = task.id;
-        if self.tasks.insert(task.id, task).is_some() {
-            panic!("Task with same ID already exists in tasks");
-        }
+        assert!(
+            self.tasks.insert(task.id, task).is_none(),
+            "Task with same ID already exists in tasks"
+        );
         self.task_queue.push(task_id).expect("queue full");
     }
 
     fn run_ready_tasks(&mut self) {
         while let Some(task_id) = self.task_queue.pop() {
-            let task = match self.tasks.get_mut(&task_id) {
-                Some(task) => task,
-                None => continue, // Task no longer exists
+            let Some(task) = self.tasks.get_mut(&task_id) else {
+                continue; // Task no longer exists, skip it
             };
+
             let waker = self
                 .waker_cache
                 .entry(task_id)

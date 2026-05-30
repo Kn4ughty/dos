@@ -79,6 +79,7 @@ impl Cursor {
     /// Implicitly also re-enables the cursor
     fn set_position(&mut self, row: usize, col: usize) {
         // she'll be right
+        #[expect(clippy::cast_possible_truncation, reason = "intended")]
         let index: u16 = (BUFFER_WIDTH as u16) * (row as u16) + (col as u16);
         unsafe {
             self.address_register.write(0x0F);
@@ -168,7 +169,7 @@ impl Writer {
                 self.write_byte(byte);
             } else {
                 // Scary recursion
-                let r = write!(self, "0x{:02x}", byte);
+                let r = write!(self, "0x{byte:02x}");
                 if let Err(e) = r {
                     use crate::serial_println;
                     serial_println!("WRITE UNKNOWN CHARACTER ERROR: {:?}", e);
@@ -176,7 +177,7 @@ impl Writer {
             }
         }
         self.cursor
-            .set_position(BUFFER_HEIGHT - 1, self.column_position)
+            .set_position(BUFFER_HEIGHT - 1, self.column_position);
     }
 }
 
@@ -213,35 +214,40 @@ pub fn _print(args: core::fmt::Arguments) {
     });
 }
 
-#[test_case]
-fn test_println_simple() {
-    vga_println!("test_println_simple output");
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test_case]
-fn test_println_many() {
-    for _ in 0..200 {
-        vga_println!("test_println_many output");
+    #[test_case]
+    fn test_println_simple() {
+        vga_println!("test_println_simple output");
     }
-}
 
-#[test_case]
-fn test_println_longgg() {
-    vga_println!(
-        "test_println_longgg output very long line of text that is sure to take up more than one line on the display, and hence test if text wrapping does not panic"
-    );
-}
-
-#[test_case]
-fn test_println_appear() {
-    vga_println!(); // So that a print!() call cannot mess up the logic.
-    let s = "FLAG";
-    vga_println!("{}", s);
-    // Disable interrupts to prevent other text from being printed to the screen
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        for (i, c) in s.chars().enumerate() {
-            let screen_char = WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i].read();
-            assert_eq!(char::from(screen_char.ascii_character), c);
+    #[test_case]
+    fn test_println_many() {
+        for _ in 0..200 {
+            vga_println!("test_println_many output");
         }
-    });
+    }
+
+    #[test_case]
+    fn test_println_longgg() {
+        vga_println!(
+            "test_println_longgg output very long line of text that is sure to take up more than one line on the display, and hence test if text wrapping does not panic"
+        );
+    }
+
+    #[test_case]
+    fn test_println_appear() {
+        vga_println!(); // So that a print!() call cannot mess up the logic.
+        let s = "FLAG";
+        vga_println!("{}", s);
+        // Disable interrupts to prevent other text from being printed to the screen
+        x86_64::instructions::interrupts::without_interrupts(|| {
+            for (i, c) in s.chars().enumerate() {
+                let screen_char = WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i].read();
+                assert_eq!(char::from(screen_char.ascii_character), c);
+            }
+        });
+    }
 }

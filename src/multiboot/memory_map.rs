@@ -84,6 +84,7 @@ impl MemoryMap {
             .filter_map(|rme| MemoryEntry::try_from(rme).ok())
     }
 
+    #[must_use]
     pub fn as_slice(&self) -> &[RawMemoryEntry] {
         let count = (self.size as usize - size_of::<Self>()) / self.entry_size as usize;
 

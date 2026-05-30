@@ -93,7 +93,8 @@ unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
         assert!(mem::size_of::<ListNode>() <= BLOCK_SIZES[index]);
         assert!(mem::align_of::<ListNode>() <= BLOCK_SIZES[index]);
 
-        debug_assert_eq!(ptr as usize * mem::align_of::<ListNode>(), 0);
+        debug_assert_eq!(ptr as usize % mem::align_of::<ListNode>(), 0);
+
         #[expect(
             clippy::cast_ptr_alignment,
             reason = "safe: pointer came from Layout::from_size_align, and BLOCK_SIZES\

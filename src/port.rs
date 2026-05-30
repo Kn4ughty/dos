@@ -25,6 +25,7 @@ pub type PortReadOnly<T> = PortGeneric<T, ReadOnlyAccess>;
 pub type PortWriteOnly<T> = PortGeneric<T, WriteOnlyAccess>;
 
 impl<T, A> PortGeneric<T, A> {
+    #[must_use]
     pub const fn new(port: u16) -> PortGeneric<T, A> {
         PortGeneric {
             port,

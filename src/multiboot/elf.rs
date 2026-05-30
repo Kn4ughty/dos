@@ -62,6 +62,11 @@ impl ELFSymbols {
     }
 }
 
+pub enum ElfError {
+    InvalidStringTableOffset(core::num::TryFromIntError),
+    Utf8Error(core::str::Utf8Error),
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct ElfSection {
@@ -76,24 +81,36 @@ impl ElfSection {
         unsafe { &*(self.inner as *const ElfSectionInner64) }
     }
 
-    pub fn name(&self) -> Result<&str, core::str::Utf8Error> {
+    /// # Errors
+    /// Errors if the name from elf is not a valid utf8 string
+    pub fn name(&self) -> Result<&str, ElfError> {
         let shdr = unsafe { &*(self.string_section as *const ElfSectionInner64) };
 
         let stringtable_ptr = shdr.addr as *const i8;
 
-        let name_ptr = unsafe { stringtable_ptr.offset(self.inner().name_index as isize) };
+        let offset =
+            isize::try_from(self.inner().name_index).map_err(ElfError::InvalidStringTableOffset)?;
 
-        unsafe { core::ffi::CStr::from_ptr(name_ptr).to_str() }
+        let name_ptr = unsafe { stringtable_ptr.offset(offset) };
+
+        unsafe {
+            core::ffi::CStr::from_ptr(name_ptr)
+                .to_str()
+                .map_err(ElfError::Utf8Error)
+        }
     }
 
+    #[must_use]
     pub fn start_addr(&self) -> u64 {
         self.inner().addr
     }
 
+    #[must_use]
     pub fn end_addr(&self) -> u64 {
         self.inner().addr + self.inner().size
     }
 
+    #[must_use]
     pub fn section_type(&self) -> SectionType {
         SectionType::try_from(self.inner().typ).unwrap_or(SectionType::Unknown)
     }
@@ -119,7 +136,16 @@ impl Iterator for ElfSectionIter {
                 entry_size: self.entry_size,
             };
 
-            self.current_section = unsafe { self.current_section.offset(self.entry_size as isize) };
+            let Ok(offset) = isize::try_from(self.entry_size) else {
+                // This is a panic, because incorrect Elf information could lead to overwriting the
+                // kernel, incorrect page permissions, etc. Would be very bad.
+                panic!(
+                    "ERROR: Failed to make isize from entry size: {:?}",
+                    self.entry_size
+                );
+            };
+
+            self.current_section = unsafe { self.current_section.offset(offset) };
             self.remaining_sections -= 1;
 
             if section.section_type() != SectionType::Inactive {

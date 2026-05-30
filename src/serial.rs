@@ -1,16 +1,16 @@
 use crate::spinlock::Mutex;
-/// See https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port for more info
+/// See <https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port> for more info
 use lazy_static::lazy_static;
 
 use crate::port::Port;
 
 pub struct Writer {
-    p_read_write: Port<u8>,
-    p_interrupt: Port<u8>,
-    p_fifo_control: Port<u8>,
-    p_line_control: Port<u8>,
-    p_modem_control: Port<u8>,
-    p_line_status: Port<u8>,
+    read_write: Port<u8>,
+    interrupt: Port<u8>,
+    fifo_control: Port<u8>,
+    line_control: Port<u8>,
+    modem_control: Port<u8>,
+    line_status: Port<u8>,
 }
 
 #[derive(Debug)]
@@ -21,14 +21,16 @@ pub enum SerialError {
 impl Writer {
     /// # Safety
     /// Caller must ensure the port, and its range is valid for a serial UART port.
+    /// # Errors
+    /// Errors if the port is faulty. Do not use to verify if port actually exists.
     pub unsafe fn new(port: u16) -> Result<Writer, SerialError> {
         let mut writer = Writer {
-            p_read_write: Port::new(port),
-            p_interrupt: Port::new(port + 1),
-            p_fifo_control: Port::new(port + 2),
-            p_line_control: Port::new(port + 3),
-            p_modem_control: Port::new(port + 4),
-            p_line_status: Port::new(port + 5),
+            read_write: Port::new(port),
+            interrupt: Port::new(port + 1),
+            fifo_control: Port::new(port + 2),
+            line_control: Port::new(port + 3),
+            modem_control: Port::new(port + 4),
+            line_status: Port::new(port + 5),
         };
 
         writer.init_serial()?;
@@ -49,30 +51,30 @@ impl Writer {
     }
 
     fn init_serial(&mut self) -> Result<(), SerialError> {
-        Self::write_port(&mut self.p_interrupt, 0x00); // Disable all interrupts
-        Self::write_port(&mut self.p_line_control, 0x80); // Enable DLAB (set baud rate divisor)
-        Self::write_port(&mut self.p_read_write, 0x03); // Set divisor to 3 (lo byte) 38400 baud
-        Self::write_port(&mut self.p_interrupt, 0x00); //                  (hi byte)
-        Self::write_port(&mut self.p_line_control, 0x03); // 8 bits, no parity, one stop bit
-        Self::write_port(&mut self.p_fifo_control, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
-        Self::write_port(&mut self.p_modem_control, 0x0B); // IRQs enabled, RTS/DSR set
-        Self::write_port(&mut self.p_modem_control, 0x1E); // Set in loopback mode, test the serial chip
+        Self::write_port(&mut self.interrupt, 0x00); // Disable all interrupts
+        Self::write_port(&mut self.line_control, 0x80); // Enable DLAB (set baud rate divisor)
+        Self::write_port(&mut self.read_write, 0x03); // Set divisor to 3 (lo byte) 38400 baud
+        Self::write_port(&mut self.interrupt, 0x00); //                  (hi byte)
+        Self::write_port(&mut self.line_control, 0x03); // 8 bits, no parity, one stop bit
+        Self::write_port(&mut self.fifo_control, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
+        Self::write_port(&mut self.modem_control, 0x0B); // IRQs enabled, RTS/DSR set
+        Self::write_port(&mut self.modem_control, 0x1E); // Set in loopback mode, test the serial chip
 
         // Check if serial is faulty (i.e: not same byte as sent)
-        Self::write_port(&mut self.p_read_write, 0xAE);
-        if Self::read_port(&mut self.p_read_write) != 0xAE {
+        Self::write_port(&mut self.read_write, 0xAE);
+        if Self::read_port(&mut self.read_write) != 0xAE {
             return Err(SerialError::FaultyPort);
         }
 
         // If serial is not faulty set it in normal operation mode
         // (not-loopback with IRQs enabled and OUT#1 and OUT#2 bits enabled)
-        Self::write_port(&mut self.p_modem_control, 0x0f);
+        Self::write_port(&mut self.modem_control, 0x0f);
         Ok(())
     }
 
     #[expect(unused)]
     fn serial_received(&mut self) -> bool {
-        (Self::read_port(&mut self.p_line_status) & 1) == 1
+        (Self::read_port(&mut self.line_status) & 1) == 1
     }
 
     #[expect(unused)]
@@ -81,11 +83,11 @@ impl Writer {
             core::hint::spin_loop();
         }
 
-        Self::read_port(&mut self.p_read_write) as char // TODO, support unicode input
+        Self::read_port(&mut self.read_write) as char // TODO, support unicode input
     }
 
     fn is_transmit_empty(&mut self) -> bool {
-        (Self::read_port(&mut self.p_line_status) & 0x20) != 0
+        (Self::read_port(&mut self.line_status) & 0x20) != 0
     }
 
     #[inline]
@@ -98,13 +100,13 @@ impl Writer {
         let mut char_buf: [u8; 4] = [0; 4];
         a.encode_utf8(&mut char_buf);
         for b in char_buf.iter().take(a.len_utf8()) {
-            Self::write_port(&mut self.p_read_write, *b);
+            Self::write_port(&mut self.read_write, *b);
         }
     }
 
     pub fn write_string(&mut self, s: &str) {
         for c in s.chars() {
-            self.write_char(c)
+            self.write_char(c);
         }
     }
 }

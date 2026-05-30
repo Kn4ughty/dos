@@ -8,6 +8,7 @@
 // Lints
 #![warn(clippy::pedantic)]
 #![allow(clippy::ptr_as_ptr)]
+#![allow(clippy::used_underscore_items)]
 #![deny(clippy::alloc_instead_of_core)]
 #![deny(clippy::allow_attributes)]
 #![deny(clippy::as_pointer_underscore)]

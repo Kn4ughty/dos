@@ -12,12 +12,12 @@ impl<T: Copy> Volatile<T> {
     }
 
     pub fn read(&self) -> T {
-        unsafe { ptr::read_volatile(&self.0) }
+        unsafe { ptr::read_volatile(&raw const self.0) }
     }
 
     pub fn write(&mut self, val: T) {
         unsafe {
-            ptr::write_volatile(&mut self.0, val);
+            ptr::write_volatile(&raw mut self.0, val);
         }
     }
 }

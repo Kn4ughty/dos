@@ -1,5 +1,5 @@
 /// PCI (Peripheral Component Interconnect)
-/// See https://wiki.osdev.org/PCI for info
+/// See <https://wiki.osdev.org/PCI> for info
 use crate::port::Port;
 use crate::spinlock::Mutex;
 
@@ -26,6 +26,7 @@ pub static PCI_BUS: Mutex<PCIBusDevice> = Mutex::new(PCIBusDevice {
 
 impl PCIBusDevice {
     pub fn read_dword(&mut self, bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
+        #[expect(clippy::cast_lossless, reason = "readability")]
         let address: u32 = ((bus as u32) << 16)
             | ((slot as u32) << 11)
             | ((func as u32) << 8)
@@ -39,6 +40,7 @@ impl PCIBusDevice {
     }
 
     pub fn read_word(&mut self, bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+        #[expect(clippy::cast_lossless, reason = "readability")]
         let address: u32 = ((bus as u32) << 16)
             | ((slot as u32) << 11)
             | ((func as u32) << 8)
@@ -61,6 +63,7 @@ pub struct PCIDevice {
 }
 
 impl PCIDevice {
+    #[must_use]
     pub fn new(bus: u8, slot: u8) -> Self {
         PCIDevice { bus, slot }
     }
@@ -89,7 +92,7 @@ impl PCIDevice {
 
         let vendor_id = {
             let t = self.read_word(bus, 0, 0);
-            if t != 0xFFFF { Some(t) } else { None }
+            if t == 0xFFFF { None } else { Some(t) }
         }?;
 
         Some(PCIDeviceHeader {

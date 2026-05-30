@@ -15,7 +15,9 @@ pub trait TagType: private::Sealed {
     const ID: u32;
 
     /// For Tags to implement their own validation methods.
-    /// Override with correct implementation when needed.
+    /// # Errors
+    /// Trait overrided with correct implementation as needed.
+    /// By default is always `Ok()`
     fn validate(&self) -> Result<&Self, TagError> {
         Ok(self)
     }
@@ -32,6 +34,9 @@ pub struct BootInformationFormat {
 impl BootInformationFormat {
     /// # Safety
     /// Caller must pass in valid address to the multiboot2 header.
+    /// # Panics
+    /// Panics if multiboot header is not 8 byte aligned
+    #[must_use]
     pub unsafe fn load<'a>(addr: usize) -> &'a BootInformationFormat {
         assert_eq!(addr % 8, 0, "Multiboot Header must be 8-byte aligned");
 
@@ -46,28 +51,32 @@ impl BootInformationFormat {
         multiboot
     }
 
+    /// # Errors
+    /// Errors if the tag is not found
     pub fn get<T: TagType>(&self) -> Result<&T, TagError> {
         self.tags()
             .find(|t| t.typ == T::ID)
             // SAFETY. Should be the correct type, as the ID matches for T
-            .map(|tag| unsafe { &*(tag as *const TagHeader as *const T) })
+            .map(|tag| unsafe { &*(core::ptr::from_ref(tag) as *const T) })
             .ok_or(TagError::NotFound)
             .and_then(|tag| tag.validate())
     }
 
     fn tags(&self) -> TagIter {
         TagIter {
-            end_address: self as *const BootInformationFormat as usize + self.total_size as usize,
-            current: &self.first_tag as *const TagHeader,
+            end_address: core::ptr::from_ref(self) as usize + self.total_size as usize,
+            current: &raw const self.first_tag,
         }
     }
 
+    #[must_use]
     pub fn start_addr(&self) -> u64 {
-        self as *const Self as u64
+        core::ptr::from_ref(self) as u64
     }
 
+    #[must_use]
     pub fn end_addr(&self) -> u64 {
-        self.start_addr() + self.total_size as u64
+        self.start_addr() + u64::from(self.total_size)
     }
 }
 
@@ -142,6 +151,8 @@ impl TagType for BootLoaderName {
 }
 
 impl BootLoaderName {
+    /// # Errors
+    /// Errors if bootloader name is not valid utf8
     pub fn name(&self) -> Result<&str, core::str::Utf8Error> {
         let ptr = self.string_start.as_ptr();
 

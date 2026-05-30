@@ -40,6 +40,7 @@ pub struct ChainedPics {
 impl ChainedPics {
     /// # Safety
     /// Must be valid offsets to a chained PIC
+    #[must_use]
     pub const unsafe fn new(offset1: u8, offset2: u8) -> ChainedPics {
         ChainedPics {
             pics: [
@@ -91,6 +92,7 @@ impl ChainedPics {
         }
     }
 
+    #[must_use]
     unsafe fn read_masks(&mut self) -> [u8; 2] {
         [self.pics[0].read_mask(), self.pics[1].read_mask()]
     }
@@ -100,6 +102,7 @@ impl ChainedPics {
         self.pics[1].write_mask(mask2);
     }
 
+    #[must_use]
     pub fn handles_interrupt(&self, interrupt_id: u8) -> bool {
         self.pics.iter().any(|p| p.handles_interrupt(interrupt_id))
     }
