@@ -16,14 +16,14 @@ pub mod memory;
 pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
-pub mod pci;
-pub mod tryfrom;
-
 pub mod multiboot;
+pub mod pci;
 pub mod pic;
 pub mod port;
 pub mod serial;
 pub mod spinlock;
+pub mod task;
+pub mod tryfrom;
 pub mod vga_buffer;
 pub mod volatile;
 

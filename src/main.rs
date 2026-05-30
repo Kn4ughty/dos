@@ -8,7 +8,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use os::{allocator, hlt_loop, init, memory, println, vga_println};
+use os::{allocator, init, memory, println, vga_println};
 
 // // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
@@ -36,6 +36,15 @@ pub extern "C" fn multiboot_start(multiboot_information_address: usize, phys_mem
     let m_end = bif.end_addr() as usize;
     println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
     k_main();
+}
+
+async fn number() -> u32 {
+    42
+}
+
+async fn example_task() {
+    let number = number().await;
+    println!("nymb {number}");
 }
 
 fn k_main(bootinfo: &'static BootInfo) -> ! {
@@ -67,8 +76,12 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    vga_println!("Finished");
-    hlt_loop();
+    use os::task::{Task, executor::Executor, keyboard};
+
+    let mut executor = Executor::new();
+    executor.spawn(Task::new(example_task()));
+    executor.spawn(Task::new(keyboard::print_keypresses()));
+    executor.run();
 }
 
 use core::panic::PanicInfo;

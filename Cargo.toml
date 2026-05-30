@@ -8,15 +8,25 @@ name = "os"
 test = true
 bench = false
 
-# [lib]
-# name = "os"
-# crate-type = ["rlib", "staticlib"]
-# test = false
-
 [features]
 default = ["bootimage"]
 bootimage = []
 
+[package.metadata.bootimage]
+test-args = [
+    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", 
+    "-serial", "stdio",
+    "-display", "none",
+    # "-netdev", "tap,id=mynet0", "-device", "virtio-net,netdev=mynet0",
+]
+run-args = ["-serial", "stdio"]
+test-success-exit-code = 33
+test-timeout = 300 #seconds
+
+# [lib]
+# name = "os"
+# crate-type = ["rlib", "staticlib"]
+# test = false
 
 # [[test]]
 # name = "should_panic"
@@ -37,15 +47,19 @@ linked_list_allocator = "0.9.0"
 version = "1.0"
 features = ["spin_no_std"]
 
-[package.metadata.bootimage]
-test-args = [
-    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", 
-    "-serial", "stdio",
-    "-display", "none",
-]
-run-args = ["-serial", "stdio"]
-test-success-exit-code = 33
-test-timeout = 300 #seconds
+[dependencies.crossbeam-queue]
+version = "0.3.11"
+default-features = false
+features = ["alloc"]
+
+[dependencies.conquer-once]
+version = "0.2.0"
+default-features = false
+
+[dependencies.futures-util]
+version = "0.3.4"
+default-features = false
+features = ["alloc"]
 
 
 [dev-dependencies]
