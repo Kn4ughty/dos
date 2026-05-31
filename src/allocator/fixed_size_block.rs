@@ -90,10 +90,20 @@ unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
             next: allocator.list_heads[index].take(),
         };
 
-        assert!(mem::size_of::<ListNode>() <= BLOCK_SIZES[index]);
-        assert!(mem::align_of::<ListNode>() <= BLOCK_SIZES[index]);
+        assert!(
+            mem::size_of::<ListNode>() <= BLOCK_SIZES[index],
+            "A list node being larger than the block size would create overlap"
+        );
+        assert!(
+            mem::align_of::<ListNode>() <= BLOCK_SIZES[index],
+            "incorrect alignment would be bad"
+        );
 
-        debug_assert_eq!(ptr as usize % mem::align_of::<ListNode>(), 0);
+        debug_assert_eq!(
+            ptr as usize % mem::align_of::<ListNode>(),
+            0,
+            "incorrect alignment would be unsafe"
+        );
 
         #[expect(
             clippy::cast_ptr_alignment,

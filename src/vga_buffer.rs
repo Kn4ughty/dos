@@ -36,7 +36,7 @@ struct ColorCode(u8);
 
 impl ColorCode {
     const fn new(foreground: Colour, background: Colour) -> ColorCode {
-        ColorCode((background as u8) << 4 | (foreground as u8))
+        ColorCode(((background as u8) << 4) | (foreground as u8))
     }
 }
 const TEXT_COLOUR: ColorCode = ColorCode::new(Colour::White, Colour::Black);

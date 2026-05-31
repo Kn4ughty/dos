@@ -9,9 +9,24 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::ptr_as_ptr)]
 #![allow(clippy::used_underscore_items)]
-#![deny(clippy::alloc_instead_of_core)]
-#![deny(clippy::allow_attributes)]
-#![deny(clippy::as_pointer_underscore)]
+#![deny(
+    clippy::alloc_instead_of_core,
+    clippy::allow_attributes,
+    clippy::as_pointer_underscore,
+    clippy::assertions_on_result_states,
+    clippy::clone_on_ref_ptr,
+    clippy::decimal_literal_representation,
+    clippy::default_union_representation,
+    clippy::else_if_without_else,
+    clippy::inline_asm_x86_att_syntax,
+    clippy::precedence_bits,
+
+    // These are good but lots of work
+    // clippy::undocumented_unsafe_blocks
+    // clippy::multiple_unsafe_ops_per_block
+
+)]
+#![warn(clippy::missing_assert_message)]
 
 extern crate alloc;
 

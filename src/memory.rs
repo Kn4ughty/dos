@@ -128,11 +128,15 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 /// Requires that `align` is a power of two.
 #[must_use]
 pub fn align_up(addr: usize, align: usize) -> usize {
-    debug_assert_eq!((align & (align - 1)), 0); // check align is power of two.
+    debug_assert_eq!(
+        (align & (align - 1)),
+        0,
+        "align must always be a power of two"
+    );
     // e.x f(0b1000) = (0b1000 & (0b0111)) == 0 = true
     // i.e Checks if only one bit is set high
 
-    // This code is equivalent to
+    // This code is equivalent to the more readable:
     /*
         let remainder = addr % align;
         if remainder == 0 {
