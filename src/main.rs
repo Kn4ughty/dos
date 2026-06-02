@@ -43,18 +43,16 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    // This seems to be a PCI controller.
-    // https://theretroweb.com/chips/2755
     for bus in 0..=255 {
         for device in 0..=31 {
             let mut pci_device = pci::PCIDevice::new(bus, device);
             if let Some(header) = pci_device.get_header() {
-                println!("{:#?}", header);
-                println!(" {:#0x}", header.base_addr0);
+                // println!("{:#?}", header);
+                // println!(" {:#0x}", header.base_addr0);
                 if header.vendor_id == pci::rtl8139::RTL8139::vendor_id() {
                     println!("Found rtl");
-                    let rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as usize);
-                    println!("{rtl:?}");
+                    let mut rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as u16);
+                    println!("{:#?}", rtl.get_mac());
                 }
             }
         }

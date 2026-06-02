@@ -35,8 +35,6 @@ impl FixedSizeBlockAllocator {
     /// This function is unsafe because the caller must guarantee that the given heap bounds are
     /// valid and the heap is unused. Must be called only once.
     pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-        // Question. How are conflics avoided? i.e how does our allocator know what the
-        // fallback_allocator has allocated and vice versa
         unsafe {
             self.fallback_allocator.init(heap_start, heap_size);
         }

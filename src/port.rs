@@ -4,17 +4,21 @@ use core::marker::PhantomData;
 pub trait PortReadAccess {}
 pub trait PortWriteAccess {}
 
+#[derive(Debug)]
 pub struct ReadOnlyAccess(());
 impl PortReadAccess for ReadOnlyAccess {}
 
+#[derive(Debug)]
 pub struct WriteOnlyAccess(());
 impl PortWriteAccess for WriteOnlyAccess {}
 
+#[derive(Debug)]
 pub struct ReadWriteAccess(());
 impl PortReadAccess for ReadWriteAccess {}
 impl PortWriteAccess for ReadWriteAccess {}
 
 // T is output type, A is access
+#[derive(Debug, Clone, Copy)]
 pub struct PortGeneric<T, A> {
     port: u16,
     phantom: PhantomData<(T, A)>,
