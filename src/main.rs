@@ -8,7 +8,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use os::{allocator, init, memory, println, vga_println};
+use os::{allocator, init, memory, pci, println, vga_println};
 
 // // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
@@ -18,24 +18,6 @@ entry_point!(bootimage_start);
 #[cfg(feature = "bootimage")]
 fn bootimage_start(boot_info: &'static BootInfo) -> ! {
     k_main(boot_info);
-}
-
-#[cfg(not(feature = "bootimage"))]
-#[no_mangle]
-pub extern "C" fn multiboot_start(multiboot_information_address: usize, phys_mem_offset: u64) -> ! {
-    let bif = unsafe { BootInformationFormat::load(multiboot_information_address) };
-
-    let elf = bif.get::<multiboot::ELFSymbols>().expect("get elf");
-    println!("{:#?}", elf);
-
-    let k_start = elf.get_sections().map(|s| s.start_addr()).min().unwrap() as usize;
-    let k_end = elf.get_sections().map(|s| s.end_addr()).max().unwrap() as usize;
-    println!("kernl start: {:#x}, end: {:#x}", k_start, k_end);
-
-    let m_start = bif.start_addr() as usize;
-    let m_end = bif.end_addr() as usize;
-    println!("multi start: {:#x}, end: {:#x}", m_start, m_end);
-    k_main();
 }
 
 async fn number() -> u32 {
@@ -65,10 +47,15 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     // https://theretroweb.com/chips/2755
     for bus in 0..=255 {
         for device in 0..=31 {
-            let mut pci_device = os::pci::PCIDevice::new(bus, device);
+            let mut pci_device = pci::PCIDevice::new(bus, device);
             if let Some(header) = pci_device.get_header() {
                 println!("{:#?}", header);
                 println!(" {:#0x}", header.base_addr0);
+                if header.vendor_id == pci::rtl8139::RTL8139::vendor_id() {
+                    println!("Found rtl");
+                    let rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as usize);
+                    println!("{rtl:?}");
+                }
             }
         }
     }

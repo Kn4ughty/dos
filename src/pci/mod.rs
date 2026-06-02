@@ -7,6 +7,7 @@ mod class_codes;
 pub use class_codes::ClassCode;
 
 mod intel_e1000e;
+pub mod rtl8139;
 
 const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
@@ -115,17 +116,16 @@ impl PCIDevice {
 }
 
 #[derive(Debug)]
-#[expect(unused)]
 pub struct PCIDeviceHeader {
-    vendor_id: u16,
-    device_id: u16,
+    pub vendor_id: u16,
+    pub device_id: u16,
     // TODO. Use bitflags!
-    command: u16,
-    status: u16,
-    revision_id: u8,
-    prog_if: u8,
-    class: class_codes::ClassCode,
-    header_type: u8,
+    pub command: u16,
+    pub status: u16,
+    pub revision_id: u8,
+    pub prog_if: u8,
+    pub class: class_codes::ClassCode,
+    pub header_type: u8,
     /// Pointer to mmio address
     pub base_addr0: u32,
 }

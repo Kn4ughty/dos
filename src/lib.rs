@@ -9,6 +9,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::ptr_as_ptr)]
 #![allow(clippy::used_underscore_items)]
+#![allow(clippy::uninlined_format_args)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,
