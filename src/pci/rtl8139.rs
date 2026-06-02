@@ -1,7 +1,6 @@
 // http://realtek.info/pdf/rtl8139d.pdf
 // https://wiki.osdev.org/RTL8139
 
-use alloc::format;
 use alloc::string::String;
 use core::fmt::Write;
 

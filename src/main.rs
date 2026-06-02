@@ -8,7 +8,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use os::{allocator, init, memory, pci, println, vga_println};
+use os::{init, mem, mem::allocator, pci, println, vga_println};
 
 // // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
@@ -37,9 +37,9 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     use x86_64::VirtAddr;
 
     let phys_mem_offset = VirtAddr::new(bootinfo.physical_memory_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
+    let mut mapper = unsafe { mem::init(phys_mem_offset) };
 
-    let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(&bootinfo.memory_map) };
+    let mut frame_allocator = unsafe { mem::BootInfoFrameAllocator::init(&bootinfo.memory_map) };
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
