@@ -10,6 +10,7 @@ use crate::port::Port;
 use crate::println;
 
 pub const VENDOR_ID: u16 = 0x10EC;
+// sadly the device id is not 8139
 pub const DEVICE_ID: u16 = 0x8139;
 
 const RX_BUFFER_PAD: usize = 16;
@@ -56,7 +57,11 @@ bitflags! {
         const RER = 1 << 1;
         /// Transmit Ok
         const TOK = 1 << 2;
-        // ...
+        /// Transmission Error
+        const TER = 1 << 3;
+        /// rx buffer overflow
+        const RXOVW = 1 << 4;
+        const FOVW = 1 << 6;
     }
 }
 
@@ -105,7 +110,10 @@ struct Ports {
     // Receive (Rx) buffer Start Address. RBSTART
     pub receive_buffer_start: Port<u32>,
     pub command_reg: Port<u8>,
+    // Reflects total received byte count in rx buffer
+    pub current_buffer_address: Port<u16>,
     pub interrupt_mask: Port<u16>,
+    pub interrupt_status: Port<u16>,
     pub tx_config: Port<u32>,
     pub rx_config: Port<u32>,
     pub config0: Port<u8>,
@@ -129,7 +137,9 @@ impl Ports {
             ],
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
+            current_buffer_address: Port::new(io_base + 0x3A),
             interrupt_mask: Port::new(io_base + 0x3C),
+            interrupt_status: Port::new(io_base + 0x3E),
             tx_config: Port::new(io_base + 0x40),
             rx_config: Port::new(io_base + 0x44),
             config0: Port::new(io_base + 0x51),
@@ -195,13 +205,51 @@ impl RTL8139 {
         unsafe {
             self.ports
                 .rx_config
-                .write((RC::AB | RC::AM | RC::APM | RC::AR | RC::AAP).bits());
+                .write((RC::AB | RC::AM | RC::APM | RC::AR | RC::AAP | RC::WRAP).bits());
         }
 
         // Enable receive and transmitter
         unsafe {
             //  set RE and TE bits high
             self.ports.command_reg.write(0x0c);
+        }
+    }
+
+    pub fn receive_packet(&mut self) -> Option<()> {
+        let cmd = unsafe { self.ports.command_reg.read() };
+        if (cmd & 1) == 1 {
+            return None;
+        }
+        println!("cmd set!");
+
+        // let cba = unsafe {
+        //     self.ports.
+        // }
+        Some(())
+    }
+
+    pub fn handle_interrupt(&mut self) {
+        let status = unsafe { self.ports.interrupt_status.read() };
+
+        if status == 0 {
+            return;
+        }
+
+        if (status & InterruptMask::ROK.bits()) != 0 {
+            println!("ROK SET");
+            self.receive_packet();
+        }
+
+        if (status & InterruptMask::TOK.bits()) != 0 {
+            println!("Packet transmitted successfully!");
+        }
+
+        if (status & InterruptMask::RER.bits()) != 0 {
+            println!("Receive error occured!");
+        }
+
+        unsafe {
+            self.ports.interrupt_status.write(status);
         }
     }
 

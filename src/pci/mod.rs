@@ -111,6 +111,7 @@ impl PCIDevice {
             },
             header_type: self.get_header_type(bus),
             base_addr0: self.read_dword(bus, 0, 0x10),
+            interrupt_line: (self.read_word(bus, 0, 0x3c) & 0xFF) as u8,
         })
     }
 }
@@ -128,4 +129,5 @@ pub struct PCIDeviceHeader {
     pub header_type: u8,
     /// Pointer to mmio address
     pub base_addr0: u32,
+    pub interrupt_line: u8,
 }

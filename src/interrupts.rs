@@ -24,7 +24,6 @@ pub enum InterruptIndex {
 }
 
 impl InterruptIndex {
-    // why lol
     fn as_u8(self) -> u8 {
         self as u8
     }

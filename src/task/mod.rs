@@ -5,6 +5,7 @@ use core::{future::Future, pin::Pin};
 
 pub mod executor;
 pub mod keyboard;
+pub mod network;
 
 pub struct Task {
     id: TaskId,

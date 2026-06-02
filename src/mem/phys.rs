@@ -7,7 +7,7 @@ use super::virt_to_phys;
 /// Buffer of contiguous physical memory
 /// useful for mmio
 pub struct PhysBuf {
-    buf: Vec<u8>,
+    pub buf: Vec<u8>,
 }
 
 impl PhysBuf {
@@ -41,8 +41,3 @@ impl PhysBuf {
             .as_u64()
     }
 }
-
-// pub fn phys_addr(ptr: *const u8) -> u64 {
-//     let virt = VirtAddr::from_ptr(ptr);
-//     super::virt_to_phys(virt)
-// }

@@ -8,7 +8,12 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use os::{init, mem, mem::allocator, pci, println, vga_println};
+use os::{
+    init,
+    mem::{self, allocator},
+    pci::{self, rtl8139::RTL8139},
+    println, vga_println,
+};
 
 // // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
@@ -34,6 +39,23 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
+    let mut rtl = find_rtl().unwrap();
+
+    rtl.init();
+    println!("{}", rtl.mac_string());
+
+    #[cfg(test)]
+    test_main();
+
+    use os::task::{Task, executor::Executor, keyboard, network};
+
+    let mut executor = Executor::new();
+    executor.spawn(Task::new(keyboard::print_keypresses()));
+    // executor.spawn(Task::new(network::get_packet(rtl)));
+    executor.run();
+}
+
+fn find_rtl() -> Option<RTL8139> {
     for bus in 0..=255 {
         for device in 0..=31 {
             let mut pci_device = pci::PCIDevice::new(bus, device);
@@ -42,22 +64,14 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
                 // println!(" {:#0x}", header.base_addr0);
                 if header.vendor_id == pci::rtl8139::VENDOR_ID {
                     println!("Found rtl");
-                    let mut rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as u16);
-                    rtl.init();
-                    println!("{}", rtl.mac_string());
+                    println!("{:#?}", header);
+                    let rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as u16);
+                    return Some(rtl);
                 }
             }
         }
     }
-
-    #[cfg(test)]
-    test_main();
-
-    use os::task::{Task, executor::Executor, keyboard};
-
-    let mut executor = Executor::new();
-    executor.spawn(Task::new(keyboard::print_keypresses()));
-    executor.run();
+    None
 }
 
 use core::panic::PanicInfo;
