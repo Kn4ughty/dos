@@ -1,14 +1,23 @@
-pub mod allocator;
-
+use conquer_once::spin::OnceCell;
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
 };
 
+pub mod allocator;
+pub mod phys;
+
+static PHYS_MEM_OFFSET: OnceCell<u64> = OnceCell::uninit();
+
 /// # Safety
 /// This function must be called only once to avoid aliasing `&mut`
-#[expect(clippy::must_use_candidate)]
+/// # Panics
+/// Panics if called multiple times
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
+    PHYS_MEM_OFFSET
+        .try_init_once(|| physical_memory_offset.as_u64())
+        .expect("mem::init must only be called once!");
+
     unsafe {
         let level_4_pagetable = active_level_4_table(physical_memory_offset);
 
@@ -48,6 +57,11 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 #[must_use]
 pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
     translate_addr_inner(addr, physical_memory_offset)
+}
+
+#[must_use]
+pub fn virt_to_phys(addr: VirtAddr) -> Option<PhysAddr> {
+    translate_addr_inner(addr, VirtAddr::new(*(PHYS_MEM_OFFSET.get()?)))
 }
 
 /// Limit the scope of unsafe. Must only be reachable through unsafe fn from outside this module

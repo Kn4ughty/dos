@@ -1,5 +1,4 @@
 // OnceCell is needed isntead of lazy_static becase we need to ensure the interrupt handler does not
-//
 // perform a heap allocation.
 use crate::print;
 use conquer_once::spin::OnceCell;

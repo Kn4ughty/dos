@@ -20,15 +20,6 @@ fn bootimage_start(boot_info: &'static BootInfo) -> ! {
     k_main(boot_info);
 }
 
-async fn number() -> u32 {
-    42
-}
-
-async fn example_task() {
-    let number = number().await;
-    println!("nymb {number}");
-}
-
 fn k_main(bootinfo: &'static BootInfo) -> ! {
     // fn k_main(boot_info: &'static BootInfo) -> ! {
     vga_println!("Hello from rustland!");
@@ -49,10 +40,11 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
             if let Some(header) = pci_device.get_header() {
                 // println!("{:#?}", header);
                 // println!(" {:#0x}", header.base_addr0);
-                if header.vendor_id == pci::rtl8139::RTL8139::vendor_id() {
+                if header.vendor_id == pci::rtl8139::VENDOR_ID {
                     println!("Found rtl");
                     let mut rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as u16);
-                    println!("{:#?}", rtl.get_mac());
+                    rtl.init();
+                    println!("{}", rtl.mac_string());
                 }
             }
         }
@@ -64,7 +56,6 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     use os::task::{Task, executor::Executor, keyboard};
 
     let mut executor = Executor::new();
-    executor.spawn(Task::new(example_task()));
     executor.spawn(Task::new(keyboard::print_keypresses()));
     executor.run();
 }

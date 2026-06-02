@@ -10,6 +10,8 @@
 #![allow(clippy::ptr_as_ptr)]
 #![allow(clippy::used_underscore_items)]
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::items_after_statements)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,

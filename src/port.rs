@@ -54,6 +54,7 @@ impl<T: PortWrite, A: PortWriteAccess> PortGeneric<T, A> {
         unsafe { T::write_to_port(self.port, value) }
     }
 }
+
 pub trait PortRead {
     /// # Safety
     /// Implementation must actually read from port
@@ -82,6 +83,28 @@ impl PortRead for u8 {
         let mut ret: u8 = 0;
         unsafe {
             asm!("in al, dx", out("al") ret, in("dx") port,
+            options(nomem, preserves_flags, nostack));
+        }
+        ret
+    }
+}
+
+impl PortWrite for u16 {
+    #[inline]
+    unsafe fn write_to_port(port: u16, val: u16) {
+        unsafe {
+            asm!("out dx, ax", in("ax") val, in("dx") port,
+            options(nomem, preserves_flags, nostack));
+        }
+    }
+}
+
+impl PortRead for u16 {
+    #[inline]
+    unsafe fn read_from_port(port: u16) -> u16 {
+        let mut ret: u16 = 0;
+        unsafe {
+            asm!("in ax, dx", out("ax") ret, in("dx") port,
             options(nomem, preserves_flags, nostack));
         }
         ret
