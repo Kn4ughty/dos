@@ -3,11 +3,25 @@
 
 use alloc::string::String;
 use bitflags::bitflags;
+use conquer_once::spin::OnceCell;
 use core::fmt::Write;
 
 use crate::mem::phys::PhysBuf;
 use crate::port::Port;
 use crate::println;
+use crate::spinlock::Mutex;
+
+pub static RTL: OnceCell<Mutex<RTL8139>> = OnceCell::uninit();
+
+pub fn irq_handler() {
+    if let Ok(rtl) = RTL.try_get()
+        && let Some(mut rtl) = rtl.try_lock()
+    {
+        rtl.handle_interrupt();
+    } else {
+        println!("WARNING: irq_handler failed to lock RTL");
+    }
+}
 
 pub const VENDOR_ID: u16 = 0x10EC;
 // sadly the device id is not 8139
@@ -105,8 +119,10 @@ bitflags! {
 // For the source of these offsets, see http://realtek.info/pdf/rtl8139d.pdf § Register Descriptions
 #[expect(unused)]
 #[derive(Debug)]
-struct Ports {
+pub struct Ports {
     pub mac: [Port<u8>; 6],
+    pub tx_status0: Port<u32>,
+    pub tx_start_addr0: Port<u32>,
     // Receive (Rx) buffer Start Address. RBSTART
     pub receive_buffer_start: Port<u32>,
     pub command_reg: Port<u8>,
@@ -135,6 +151,8 @@ impl Ports {
                 Port::new(io_base + 0x04),
                 Port::new(io_base + 0x05),
             ],
+            tx_status0: Port::new(io_base + 0x10),
+            tx_start_addr0: Port::new(io_base + 0x20),
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
             current_buffer_address: Port::new(io_base + 0x3A),
@@ -162,8 +180,9 @@ impl Ports {
 }
 
 pub struct RTL8139 {
-    ports: Ports,
+    pub ports: Ports,
     rx_buf: PhysBuf,
+    tx_buf: PhysBuf,
 }
 
 impl RTL8139 {
@@ -172,10 +191,12 @@ impl RTL8139 {
         Self {
             ports: Ports::new(io_base),
             rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD),
+            tx_buf: PhysBuf::new(2048),
         }
     }
 
     pub fn init(&mut self) {
+        println!("RTL8139 init.");
         // Power on
         unsafe {
             self.ports.config1.write(0x0);
@@ -186,32 +207,111 @@ impl RTL8139 {
             self.ports.command_reg.write(0x10);
             // is a memfence needed here?
             println!("Waiting for RTL8139 reset to finish");
+            let mut timeout = 0u32;
             while (self.ports.command_reg.read() & 0x10) != 0 {
                 core::hint::spin_loop();
+                timeout += 1;
+                if timeout % 10_001 == 0 {
+                    println!("more than 10k. Timeout possible. {:?}", timeout);
+                }
             }
         }
 
         let rx_addr: u32 = self.rx_buf.addr().try_into().expect("rx_buf less than u32");
+        println!("rx_buf phys addr: {:#010x}", rx_addr);
         unsafe {
             self.ports.receive_buffer_start.write(rx_addr);
+            println!(
+                "rx_buf readback: {:#010x}",
+                self.ports.receive_buffer_start.read()
+            );
         }
 
         // Setup interrupts
         use InterruptMask as IM;
-        unsafe { self.ports.interrupt_mask.write((IM::ROK | IM::TOK).bits()) }
+        let imr_val = (IM::ROK | IM::TOK).bits();
+        println!("Writing IMR: {:#06x}", imr_val);
+        unsafe {
+            self.ports.interrupt_mask.write(imr_val);
+            println!("IMR readback: {:#06x}", self.ports.interrupt_mask.read());
+        }
 
         // Configure receive buffer
         use ReceiveConfiguration as RC;
+        let rcr_val = (RC::AB | RC::AM | RC::APM | RC::AR | RC::AAP | RC::WRAP).bits();
+        println!("Writing RCR: {:#010x}", rcr_val);
         unsafe {
-            self.ports
-                .rx_config
-                .write((RC::AB | RC::AM | RC::APM | RC::AR | RC::AAP | RC::WRAP).bits());
+            self.ports.rx_config.write(rcr_val);
+            println!("RCR readback: {:#010x}", self.ports.rx_config.read());
         }
 
         // Enable receive and transmitter
         unsafe {
             //  set RE and TE bits high
             self.ports.command_reg.write(0x0c);
+            println!(
+                "command_reg after enable: {:#04x}",
+                self.ports.command_reg.read()
+            );
+        }
+
+        println!("RTL8139 init completed");
+    }
+
+    pub fn register_interrupts(self: RTL8139, interrupt_line: u8) {
+        RTL.try_init_once(move || Mutex::new(self))
+            .expect("RTL8139 device already registed");
+
+        crate::interrupts::set_irq_handler(interrupt_line, irq_handler);
+        crate::interrupts::clear_irq_mask(interrupt_line);
+    }
+
+    pub fn send_arp(&mut self) {
+        // ARP packet: who has 10.0.2.2? tell 10.0.2.15
+        // (QEMU's default gateway is 10.0.2.2, guest is 10.0.2.15)
+        let mut packet = [0u8; 42];
+
+        // Ethernet header
+        packet[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // dst: broadcast
+        let mac = self.ports.get_mac();
+        packet[6..12].copy_from_slice(&mac); // src: our mac
+        packet[12..14].copy_from_slice(&[0x08, 0x06]); // ethertype: ARP
+
+        // ARP body
+        packet[14..16].copy_from_slice(&[0x00, 0x01]); // hardware type: ethernet
+        packet[16..18].copy_from_slice(&[0x08, 0x00]); // protocol type: IPv4
+        packet[18] = 6; // hardware size
+        packet[19] = 4; // protocol size
+        packet[20..22].copy_from_slice(&[0x00, 0x01]); // opcode: request
+        packet[22..28].copy_from_slice(&mac); // sender mac
+        packet[28..32].copy_from_slice(&[10, 0, 2, 15]); // sender IP: 10.0.2.15
+        packet[32..38].copy_from_slice(&[0, 0, 0, 0, 0, 0]); // target mac: unknown
+        packet[38..42].copy_from_slice(&[10, 0, 2, 2]); // target IP: 10.0.2.2 (QEMU gateway)
+
+        self.send_packet(&packet);
+    }
+
+    pub fn send_packet(&mut self, data: &[u8]) {
+        // use crate::mem::virt_to_phys;
+        // use x86_64::VirtAddr;
+        // let virt = VirtAddr::from_ptr(data.as_ptr());
+        // let phys = virt_to_phys(virt).expect("failed to translatge vaddr to phys addr");
+
+        let len = data.len();
+        self.tx_buf.buf[..len].copy_from_slice(data);
+
+        let phys = self.tx_buf.addr();
+        println!("send_packet: phys={:#010x}, len={}", phys, len);
+        unsafe {
+            self.ports
+                .tx_start_addr0
+                .write(u32::try_from(phys).expect("addr fits"));
+            let readback = self.ports.tx_start_addr0.read();
+            println!("TSAD0 readback: {:#010x}", readback);
+
+            self.ports.tx_status0.write(data.len() as u32 & 0x1FFF);
+            let status = self.ports.tx_status0.read();
+            println!("TSD0 after write: {:#010x}", status);
         }
     }
 
@@ -235,6 +335,10 @@ impl RTL8139 {
             return;
         }
 
+        unsafe {
+            self.ports.interrupt_status.write(status);
+        }
+
         if (status & InterruptMask::ROK.bits()) != 0 {
             println!("ROK SET");
             self.receive_packet();
@@ -246,10 +350,6 @@ impl RTL8139 {
 
         if (status & InterruptMask::RER.bits()) != 0 {
             println!("Receive error occured!");
-        }
-
-        unsafe {
-            self.ports.interrupt_status.write(status);
         }
     }
 

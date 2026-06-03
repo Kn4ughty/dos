@@ -54,6 +54,20 @@ impl PCIBusDevice {
             ((self.data.read() >> ((offset & 2) * 8)) & 0xFFFF) as u16
         }
     }
+
+    pub fn write_dword(&mut self, bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
+        #[expect(clippy::cast_lossless, reason = "readability")]
+        let address: u32 = ((bus as u32) << 16)
+            | ((slot as u32) << 11)
+            | ((func as u32) << 8)
+            | (offset & 0xFC) as u32
+            | (0x8000_0000);
+
+        unsafe {
+            self.address.write(address);
+            self.data.write(value);
+        }
+    }
 }
 
 // This doesnt need to be a struct.
@@ -69,12 +83,16 @@ impl PCIDevice {
         PCIDevice { bus, slot }
     }
 
-    pub fn read_word(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u16 {
+    fn read_word(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u16 {
         bus.read_word(self.bus, self.slot, func, offset)
     }
 
-    pub fn read_dword(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u32 {
+    fn read_dword(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u32 {
         bus.read_dword(self.bus, self.slot, func, offset)
+    }
+
+    fn write_dword(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8, value: u32) {
+        bus.write_dword(self.bus, self.slot, func, offset, value);
     }
 
     // This is a function, so that it can be called by itself for later quickly enumerating
@@ -82,6 +100,15 @@ impl PCIDevice {
     pub fn get_header_type(&mut self, bus: &mut PCIBusDevice) -> u8 {
         let dword = self.read_dword(bus, 0, 0x0C);
         ((dword >> 16) & 0xFF) as u8
+    }
+
+    pub fn enable_bus_mastering(&mut self) {
+        let bus = &mut PCI_BUS.lock();
+        let command = bus.read_word(self.bus, self.slot, 0, 0x4);
+        let new_command = command | 0x4;
+        let dword = bus.read_dword(self.bus, self.slot, 0, 0x4);
+        let new_dword = (dword & 0xFFFF_0000) | (u32::from(new_command) & 0xFFFF);
+        self.write_dword(bus, 0, 0x4, new_dword);
     }
 
     pub fn get_header(&mut self) -> Option<PCIDeviceHeader> {

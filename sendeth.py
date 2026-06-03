@@ -7,7 +7,7 @@ e.g.:
 
 from socket import *
 
-def sendeth(src, dst, eth_type, payload, interface = "enp6s0"):
+def sendeth(src, dst, eth_type, payload, interface = "tap0"):
   """Send raw Ethernet packet on interface."""
 
   assert(len(src) == len(dst) == 6) # 48-bit ethernet addresses

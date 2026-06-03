@@ -8,6 +8,7 @@ use super::virt_to_phys;
 /// useful for mmio
 pub struct PhysBuf {
     pub buf: Vec<u8>,
+    _private: (),
 }
 
 impl PhysBuf {
@@ -26,7 +27,10 @@ impl PhysBuf {
 
         if (phys_end - phys_begin) == buffer_end as u64 {
             // Yay the memory is contiguous
-            Self { buf: vec }
+            Self {
+                buf: vec,
+                _private: (),
+            }
         } else {
             // Old vec is dropped, allocate new one
             Self::from(vec.clone())

@@ -4,6 +4,7 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 use lazy_static::lazy_static;
 
 use crate::pic::ChainedPics;
+use crate::port::Port;
 use crate::{gdt, hlt_loop};
 use crate::{println, vga_println};
 
@@ -108,6 +109,26 @@ pub fn set_irq_handler(irq: u8, handler: fn()) {
         handlers[irq as usize] = handler;
         // mask?
     });
+}
+
+const PIC1: u16 = 0x21;
+const PIC2: u16 = 0xA1;
+
+fn irq_port(irq: u8) -> Port<u8> {
+    let addr = if irq < 8 { PIC1 } else { PIC2 };
+    Port::new(addr)
+}
+
+fn irq_line(irq: u8) -> u8 {
+    if irq < 8 { irq } else { irq - 8 }
+}
+
+pub fn clear_irq_mask(irq: u8) {
+    let mut port = irq_port(irq);
+    unsafe {
+        let value = port.read() & !(1 << irq_line(irq));
+        port.write(value);
+    }
 }
 
 pub fn init_idt() {

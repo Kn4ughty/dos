@@ -39,10 +39,19 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    let mut rtl = find_rtl().unwrap();
+    let mut rtl = find_rtl();
 
-    rtl.init();
-    println!("{}", rtl.mac_string());
+    // rtl.init();
+    // println!("{}", rtl.mac_string());
+    //
+    // rtl.send_arp();
+    // for _ in 0..1_000_000 {
+    //     core::hint::spin_loop();
+    // }
+    // unsafe {
+    //     let isr = rtl.ports.interrupt_status.read(); // need to make ports pub temporarily
+    //     println!("ISR after send: {:#06x}", isr);
+    // }
 
     #[cfg(test)]
     test_main();
@@ -55,7 +64,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     executor.run();
 }
 
-fn find_rtl() -> Option<RTL8139> {
+fn find_rtl() {
     for bus in 0..=255 {
         for device in 0..=31 {
             let mut pci_device = pci::PCIDevice::new(bus, device);
@@ -65,13 +74,16 @@ fn find_rtl() -> Option<RTL8139> {
                 if header.vendor_id == pci::rtl8139::VENDOR_ID {
                     println!("Found rtl");
                     println!("{:#?}", header);
-                    let rtl = pci::rtl8139::RTL8139::new(header.base_addr0 as u16);
-                    return Some(rtl);
+                    pci_device.enable_bus_mastering();
+
+                    let mut rtl = pci::rtl8139::RTL8139::new((header.base_addr0 & 0xFFFC) as u16);
+                    rtl.init();
+                    rtl.send_arp();
+                    rtl.register_interrupts(header.interrupt_line);
                 }
             }
         }
     }
-    None
 }
 
 use core::panic::PanicInfo;
