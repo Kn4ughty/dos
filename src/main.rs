@@ -39,7 +39,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    let mut rtl = find_rtl();
+    find_rtl();
 
     // rtl.init();
     // println!("{}", rtl.mac_string());
@@ -60,7 +60,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(keyboard::print_keypresses()));
-    // executor.spawn(Task::new(network::get_packet(rtl)));
+    executor.spawn(Task::new(network::get_packet()));
     executor.run();
 }
 
