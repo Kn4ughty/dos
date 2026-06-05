@@ -6,6 +6,9 @@ use futures_util::{Stream, StreamExt, task::AtomicWaker};
 
 use crate::println;
 
+mod intel_e1000e;
+pub mod rtl8139;
+
 const PACKET_QUEUE_SIZE: usize = 4;
 static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();

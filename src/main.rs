@@ -11,9 +11,9 @@ use bootloader::{BootInfo, entry_point};
 use os::{
     init,
     mem::{self, allocator},
-    pci::{self, rtl8139::RTL8139},
-    println, vga_println,
+    net, pci, println, vga_println,
 };
+use x86_64::instructions::interrupts::without_interrupts;
 
 // // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
@@ -39,30 +39,21 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
-    os::task::network::init();
+    net::init();
 
     find_rtl();
-
-    // rtl.init();
-    // println!("{}", rtl.mac_string());
-    //
-    // rtl.send_arp();
-    // for _ in 0..1_000_000 {
-    //     core::hint::spin_loop();
-    // }
-    // unsafe {
-    //     let isr = rtl.ports.interrupt_status.read(); // need to make ports pub temporarily
-    //     println!("ISR after send: {:#06x}", isr);
-    // }
+    without_interrupts(|| {
+        net::rtl8139::RTL.get().unwrap().lock().send_arp();
+    });
 
     #[cfg(test)]
     test_main();
 
-    use os::task::{Task, executor::Executor, keyboard, network};
+    use os::task::{Task, executor::Executor, keyboard};
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(keyboard::print_keypresses()));
-    executor.spawn(Task::new(network::get_packet()));
+    executor.spawn(Task::new(net::get_packet()));
     executor.run();
 }
 
@@ -70,17 +61,15 @@ fn find_rtl() {
     for bus in 0..=255 {
         for device in 0..=31 {
             let mut pci_device = pci::PCIDevice::new(bus, device);
+            #[expect(clippy::collapsible_if, reason = "future proofing")]
             if let Some(header) = pci_device.get_header() {
-                // println!("{:#?}", header);
-                // println!(" {:#0x}", header.base_addr0);
-                if header.vendor_id == pci::rtl8139::VENDOR_ID {
-                    println!("Found rtl");
+                if let Some(mut rtl) = net::rtl8139::RTL8139::try_new(&header) {
+                    println!("Found rtl!");
                     println!("{:#?}", header);
                     pci_device.enable_bus_mastering();
 
-                    let mut rtl = pci::rtl8139::RTL8139::new((header.base_addr0 & 0xFFFC) as u16);
                     rtl.init();
-                    rtl.send_arp();
+                    // rtl.send_arp();
                     rtl.register_interrupts(header.interrupt_line);
                 }
             }

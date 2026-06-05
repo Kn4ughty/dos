@@ -39,6 +39,7 @@ pub mod gdt;
 pub mod interrupts;
 pub mod mem;
 pub mod multiboot;
+pub mod net;
 pub mod pci;
 pub mod pic;
 pub mod port;

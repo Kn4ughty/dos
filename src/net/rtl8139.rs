@@ -6,7 +6,6 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
 use core::fmt::Write;
-use core::usize;
 
 use crate::mem::{self, phys::PhysBuf};
 use crate::port::Port;
@@ -14,6 +13,15 @@ use crate::println;
 use crate::spinlock::Mutex;
 
 pub static RTL: OnceCell<Mutex<RTL8139>> = OnceCell::uninit();
+
+pub const VENDOR_ID: u16 = 0x10EC;
+// sadly the device id is not 8139
+pub const DEVICE_ID: u16 = 0x8139;
+
+const RX_BUFFER_PAD: usize = 16;
+const RX_BUFFER_LEN: usize = 8192;
+
+const TX_BUFFER_SIZE: usize = 2048;
 
 pub fn irq_handler() {
     if let Ok(rtl) = RTL.try_get()
@@ -24,13 +32,6 @@ pub fn irq_handler() {
         println!("WARNING: irq_handler failed to lock RTL");
     }
 }
-
-pub const VENDOR_ID: u16 = 0x10EC;
-// sadly the device id is not 8139
-pub const DEVICE_ID: u16 = 0x8139;
-
-const RX_BUFFER_PAD: usize = 16;
-const RX_BUFFER_LEN: usize = 8192;
 
 // Receive status register flags
 bitflags! {
@@ -121,7 +122,7 @@ bitflags! {
 
 // For the source of these offsets, see http://realtek.info/pdf/rtl8139d.pdf § Register Descriptions
 #[derive(Debug)]
-pub struct Ports {
+struct Ports {
     pub mac: [Port<u8>; 6],
     pub tx_status0: Port<u32>,
     pub tx_start_addr0: Port<u32>,
@@ -131,12 +132,12 @@ pub struct Ports {
     /// Current address of packet read
     pub capr: Port<u16>,
     /// Reflects total received byte count in rx buffer
-    pub current_buffer_address: Port<u16>,
+    pub _current_buffer_address: Port<u16>,
     pub interrupt_mask: Port<u16>,
     pub interrupt_status: Port<u16>,
-    pub tx_config: Port<u32>,
+    pub _tx_config: Port<u32>,
     pub rx_config: Port<u32>,
-    pub config0: Port<u8>,
+    pub _config0: Port<u8>,
     pub config1: Port<u8>,
 }
 
@@ -160,12 +161,12 @@ impl Ports {
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
             capr: Port::new(io_base + 0x38),
-            current_buffer_address: Port::new(io_base + 0x3A),
+            _current_buffer_address: Port::new(io_base + 0x3A),
             interrupt_mask: Port::new(io_base + 0x3C),
             interrupt_status: Port::new(io_base + 0x3E),
-            tx_config: Port::new(io_base + 0x40),
+            _tx_config: Port::new(io_base + 0x40),
             rx_config: Port::new(io_base + 0x44),
-            config0: Port::new(io_base + 0x51),
+            _config0: Port::new(io_base + 0x51),
             config1: Port::new(io_base + 0x52),
         }
     }
@@ -193,13 +194,30 @@ pub struct RTL8139 {
 
 impl RTL8139 {
     #[must_use]
-    pub fn new(io_base: u16) -> Self {
-        Self {
+    pub fn try_new(pci_header: &crate::pci::PCIDeviceHeader) -> Option<Self> {
+        if pci_header.vendor_id != VENDOR_ID || pci_header.device_id != DEVICE_ID {
+            return None;
+        }
+
+        let io_base = {
+            let base = pci_header.base_addr0;
+            // These do not return options, because they indicate something has gone quite wrong.
+            // Something with matching vid and did should absolutely pass these asserts
+            assert_eq!(
+                base & 0x1,
+                1,
+                "must be odd to indicate that base_addr is a port"
+            );
+            assert!(base < u32::from(u16::MAX), "Must be a valid port");
+            (pci_header.base_addr0 & 0xFFFC) as u16
+        };
+
+        Some(Self {
             ports: Ports::new(io_base),
             rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD),
-            tx_buf: PhysBuf::new(2048),
+            tx_buf: PhysBuf::new(TX_BUFFER_SIZE),
             rx_offset: 0,
-        }
+        })
     }
 
     pub fn init(&mut self) {
@@ -212,54 +230,34 @@ impl RTL8139 {
         // Software reset
         unsafe {
             self.ports.command_reg.write(0x10);
-            // is a memfence needed here?
-            println!("Waiting for RTL8139 reset to finish");
-            let mut timeout = 0u32;
             while (self.ports.command_reg.read() & 0x10) != 0 {
                 core::hint::spin_loop();
-                timeout += 1;
-                if timeout % 10_001 == 0 {
-                    println!("more than 10k. Timeout possible. {:?}", timeout);
-                }
             }
         }
 
         let rx_addr: u32 = self.rx_buf.addr().try_into().expect("rx_buf less than u32");
-        println!("rx_buf phys addr: {:#010x}", rx_addr);
         unsafe {
             self.ports.receive_buffer_start.write(rx_addr);
-            println!(
-                "rx_buf readback: {:#010x}",
-                self.ports.receive_buffer_start.read()
-            );
         }
 
         // Setup interrupts
         use InterruptMask as IM;
         let imr_val = (IM::ROK | IM::TOK).bits();
-        println!("Writing IMR: {:#06x}", imr_val);
         unsafe {
             self.ports.interrupt_mask.write(imr_val);
-            println!("IMR readback: {:#06x}", self.ports.interrupt_mask.read());
         }
 
         // Configure receive buffer
         use ReceiveConfiguration as RC;
         let rcr_val = (RC::AB | RC::AM | RC::APM | RC::AR | RC::AAP | RC::WRAP).bits();
-        println!("Writing RCR: {:#010x}", rcr_val);
         unsafe {
             self.ports.rx_config.write(rcr_val);
-            println!("RCR readback: {:#010x}", self.ports.rx_config.read());
         }
 
         // Enable receive and transmitter
         unsafe {
             //  set RE and TE bits high
             self.ports.command_reg.write(0x0c);
-            println!(
-                "command_reg after enable: {:#04x}",
-                self.ports.command_reg.read()
-            );
         }
 
         println!("RTL8139 init completed");
@@ -299,12 +297,10 @@ impl RTL8139 {
     }
 
     pub fn send_packet(&mut self, data: &[u8]) {
-        // use crate::mem::virt_to_phys;
-        // use x86_64::VirtAddr;
-        // let virt = VirtAddr::from_ptr(data.as_ptr());
-        // let phys = virt_to_phys(virt).expect("failed to translatge vaddr to phys addr");
-
         let len = data.len();
+
+        assert!(len <= TX_BUFFER_SIZE, "too much data");
+
         self.tx_buf.buf[..len].copy_from_slice(data);
 
         let phys = self.tx_buf.addr();
@@ -313,12 +309,10 @@ impl RTL8139 {
             self.ports
                 .tx_start_addr0
                 .write(u32::try_from(phys).expect("addr fits"));
-            let readback = self.ports.tx_start_addr0.read();
-            println!("TSAD0 readback: {:#010x}", readback);
 
-            self.ports.tx_status0.write(data.len() as u32 & 0x1FFF);
-            let status = self.ports.tx_status0.read();
-            println!("TSD0 after write: {:#010x}", status);
+            self.ports
+                .tx_status0
+                .write(u32::try_from(data.len()).expect("too much data") & 0x1FFF);
         }
     }
 
@@ -380,7 +374,7 @@ impl RTL8139 {
         if (status & InterruptMask::ROK.bits()) != 0 {
             println!("Receiving packet");
             if let Some(packet) = self.receive_packet() {
-                crate::task::network::push_packet(packet);
+                super::push_packet(packet);
             }
         }
 

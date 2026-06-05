@@ -6,9 +6,6 @@ use crate::spinlock::Mutex;
 mod class_codes;
 pub use class_codes::ClassCode;
 
-mod intel_e1000e;
-pub mod rtl8139;
-
 const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
