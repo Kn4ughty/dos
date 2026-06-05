@@ -1,11 +1,9 @@
 // http://realtek.info/pdf/rtl8139d.pdf
 // https://wiki.osdev.org/RTL8139
 
-use alloc::string::String;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
-use core::fmt::Write;
 
 use crate::mem::{self, phys::PhysBuf};
 use crate::port::Port;
@@ -30,6 +28,26 @@ pub fn irq_handler() {
         rtl.handle_interrupt();
     } else {
         println!("WARNING: irq_handler failed to lock RTL");
+    }
+}
+
+pub fn find_rtl() {
+    for bus in 0..=255 {
+        for device in 0..=31 {
+            let mut pci_device = crate::pci::PCIDevice::new(bus, device);
+            #[expect(clippy::collapsible_if, reason = "future proofing")]
+            if let Some(header) = pci_device.get_header() {
+                if let Some(mut rtl) = RTL8139::try_new(&header) {
+                    println!("Found rtl!");
+                    println!("{:#?}", header);
+                    pci_device.enable_bus_mastering();
+
+                    rtl.init();
+                    // rtl.send_arp();
+                    rtl.register_interrupts(header.interrupt_line);
+                }
+            }
+        }
     }
 }
 
@@ -102,23 +120,6 @@ bitflags! {
         const WRAP = 1 << 7;
     }
 }
-
-// pub struct MACAddress {
-//     pub mac: [Port<u8>; 6],
-// }
-
-// impl core::fmt::Debug for MACAddress {
-//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-//         for (i, seg) in self.mac.iter().enumerate() {
-//             f.write_fmt(format_args!("{:02X}", seg.read()))?;
-//
-//             if i != 7 {
-//                 f.write_char(':')?;
-//             }
-//         }
-//         Ok(())
-//     }
-// }
 
 // For the source of these offsets, see http://realtek.info/pdf/rtl8139d.pdf § Register Descriptions
 #[derive(Debug)]
@@ -271,37 +272,12 @@ impl RTL8139 {
         crate::interrupts::clear_irq_mask(interrupt_line);
     }
 
-    pub fn send_arp(&mut self) {
-        // ARP packet: who has 10.0.2.2? tell 10.0.2.15
-        // (QEMU's default gateway is 10.0.2.2, guest is 10.0.2.15)
-        let mut packet = [0u8; 42];
-
-        // Ethernet header
-        packet[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // dst: broadcast
-        let mac = self.ports.get_mac();
-        packet[6..12].copy_from_slice(&mac); // src: our mac
-        packet[12..14].copy_from_slice(&[0x08, 0x06]); // ethertype: ARP
-
-        // ARP body
-        packet[14..16].copy_from_slice(&[0x00, 0x01]); // hardware type: ethernet
-        packet[16..18].copy_from_slice(&[0x08, 0x00]); // protocol type: IPv4
-        packet[18] = 6; // hardware size
-        packet[19] = 4; // protocol size
-        packet[20..22].copy_from_slice(&[0x00, 0x01]); // opcode: request
-        packet[22..28].copy_from_slice(&mac); // sender mac
-        packet[28..32].copy_from_slice(&[10, 0, 2, 15]); // sender IP: 10.0.2.15
-        packet[32..38].copy_from_slice(&[0, 0, 0, 0, 0, 0]); // target mac: unknown
-        packet[38..42].copy_from_slice(&[10, 0, 2, 2]); // target IP: 10.0.2.2 (QEMU gateway)
-
-        self.send_packet(&packet);
-    }
-
-    pub fn send_packet(&mut self, data: &[u8]) {
-        let len = data.len();
+    pub fn send_packet(&mut self, packet: &[u8]) {
+        let len = packet.len();
 
         assert!(len <= TX_BUFFER_SIZE, "too much data");
 
-        self.tx_buf.buf[..len].copy_from_slice(data);
+        self.tx_buf.buf[..len].copy_from_slice(packet);
 
         let phys = self.tx_buf.addr();
         println!("send_packet: phys={:#010x}, len={}", phys, len);
@@ -312,7 +288,7 @@ impl RTL8139 {
 
             self.ports
                 .tx_status0
-                .write(u32::try_from(data.len()).expect("too much data") & 0x1FFF);
+                .write(u32::try_from(packet.len()).expect("too much data") & 0x1FFF);
         }
     }
 
@@ -324,18 +300,18 @@ impl RTL8139 {
 
         let offset = self.rx_offset;
 
-        // //  offset address of packet start
-        // let offset = (unsafe { self.ports.capr.read() } as usize + RX_BUFFER_PAD) % RX_BUFFER_LEN;
-
         let header = ReceiveStatus::from_bits_retain(u16::from_le_bytes(
             self.rx_buf.buf[offset..offset + 2].try_into().unwrap(),
         ));
 
         if !header.contains(ReceiveStatus::ROK) {
             println!("WARNING: Error receiving packet! {:?}", header);
-            // need to cleanup
+            // May need to still advance capr.
+            // This is a future problem. We will find out when an error happens.
+            // yk what, so that we MUST handle it in future ill just panic
+            panic!("Error receiving packet");
 
-            return None;
+            // return None;
         }
         let pkt_length = u16::from_le_bytes(
             self.rx_buf.buf[(offset + 2)..(offset + 4)]
@@ -343,18 +319,17 @@ impl RTL8139 {
                 .unwrap(),
         ) as usize;
 
+        // We alloate a new vec, if we just pass around a refence to the data,
+        // then that can be modified by harder at any moment! That would be very bad.
         let out = self.rx_buf.buf[(offset + 4)..(offset + pkt_length)].to_vec();
 
         // We must advance capr to tell hardware we are done with this region of buffer
-
-        // let capr = unsafe { self.ports.capr.read() };
-
         self.rx_offset = mem::align_up(offset + pkt_length + 4, 4) % RX_BUFFER_LEN;
-
         unsafe {
-            self.ports
-                .capr
-                .write((self.rx_offset as u16).wrapping_sub(RX_BUFFER_PAD as u16));
+            self.ports.capr.write(
+                (u16::try_from(self.rx_offset).expect("RX_BUFFER_LEN must be less than u16::MAX"))
+                    .wrapping_sub(u16::try_from(RX_BUFFER_PAD).expect("Padding must fit")),
+            );
         }
 
         Some(out)
@@ -374,7 +349,7 @@ impl RTL8139 {
         if (status & InterruptMask::ROK.bits()) != 0 {
             println!("Receiving packet");
             if let Some(packet) = self.receive_packet() {
-                super::push_packet(packet);
+                super::super::push_packet(packet);
             }
         }
 
@@ -387,19 +362,7 @@ impl RTL8139 {
         }
     }
 
-    pub fn mac_string(&mut self) -> String {
-        fmt_mac(&self.ports.get_mac())
+    pub fn get_mac(&mut self) -> [u8; 6] {
+        self.ports.get_mac()
     }
-}
-
-#[must_use]
-pub fn fmt_mac(mac: &[u8; 6]) -> String {
-    let mut out = String::new();
-    for (i, seg) in &mut mac.iter().enumerate() {
-        _ = write!(out, "{:02X}", seg);
-        if i != 5 {
-            _ = write!(out, ":");
-        }
-    }
-    out
 }

@@ -11,11 +11,9 @@ use bootloader::{BootInfo, entry_point};
 use os::{
     init,
     mem::{self, allocator},
-    net, pci, println, vga_println,
+    net, vga_println,
 };
 use x86_64::instructions::interrupts::without_interrupts;
-
-// // 1. THE BOOTIMAGE ENTRY POINT (For your current testing scaffolding)
 
 #[cfg(feature = "bootimage")]
 entry_point!(bootimage_start);
@@ -26,7 +24,6 @@ fn bootimage_start(boot_info: &'static BootInfo) -> ! {
 }
 
 fn k_main(bootinfo: &'static BootInfo) -> ! {
-    // fn k_main(boot_info: &'static BootInfo) -> ! {
     vga_println!("Hello from rustland!");
     init();
 
@@ -41,9 +38,8 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     net::init();
 
-    find_rtl();
     without_interrupts(|| {
-        net::rtl8139::RTL.get().unwrap().lock().send_arp();
+        net::send_arp();
     });
 
     #[cfg(test)]
@@ -57,31 +53,12 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     executor.run();
 }
 
-fn find_rtl() {
-    for bus in 0..=255 {
-        for device in 0..=31 {
-            let mut pci_device = pci::PCIDevice::new(bus, device);
-            #[expect(clippy::collapsible_if, reason = "future proofing")]
-            if let Some(header) = pci_device.get_header() {
-                if let Some(mut rtl) = net::rtl8139::RTL8139::try_new(&header) {
-                    println!("Found rtl!");
-                    println!("{:#?}", header);
-                    pci_device.enable_bus_mastering();
-
-                    rtl.init();
-                    // rtl.send_arp();
-                    rtl.register_interrupts(header.interrupt_line);
-                }
-            }
-        }
-    }
-}
-
 use core::panic::PanicInfo;
 
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    use os::println;
     println!("{}", info);
     os::hlt_loop();
 }
