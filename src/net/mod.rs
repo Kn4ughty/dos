@@ -97,7 +97,12 @@ pub async fn get_packet() {
         if let Some(packet) = nns.next().await
             && let Ok(ep) = EthernetPacket::try_from(packet.as_slice())
         {
-            if ep.typ == EtherType::Arp {}
+            // blah
+            if ep.typ == EtherType::Arp
+                && let Ok(a) = arp::ArpPacket::try_from(ep.data)
+            {
+                arp::handle_arp(&a);
+            }
             // println!("received ep: {:?}", ep);
         }
     }

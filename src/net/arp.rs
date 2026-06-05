@@ -1,40 +1,26 @@
 use crate::net::ethernet::EtherType;
 use crate::println;
+use crate::spinlock::Mutex;
 
 use super::ethernet::MacAddress;
 use core::convert::TryInto;
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
 
-// pub fn send_arp() {
-//     // ARP packet: who has 10.0.2.2? tell 10.0.2.15
-//     // (QEMU's default gateway is 10.0.2.2, guest is 10.0.2.15)
-//     let mut packet = [0u8; 42];
-//
-//     // Ethernet header
-//     packet[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // dst: broadcast
-//
-//     let mac = super::nic::rtl8139::RTL.get().unwrap().lock().get_mac();
-//
-//     packet[6..12].copy_from_slice(&mac); // src: our mac
-//     packet[12..14].copy_from_slice(&[0x08, 0x06]); // ethertype: ARP
-//
-//     // ARP body
-//     packet[14..16].copy_from_slice(&[0x00, 0x01]); // hardware type: ethernet
-//     packet[16..18].copy_from_slice(&[0x08, 0x00]); // protocol type: IPv4
-//     packet[18] = 6; // hardware size
-//     packet[19] = 4; // protocol size
-//     packet[20..22].copy_from_slice(&[0x00, 0x01]); // opcode: request
-//     packet[22..28].copy_from_slice(&mac); // sender mac
-//     packet[28..32].copy_from_slice(&[10, 0, 2, 15]); // sender IP: 10.0.2.15
-//     packet[32..38].copy_from_slice(&[0, 0, 0, 0, 0, 0]); // target mac: unknown
-//     packet[38..42].copy_from_slice(&[10, 0, 2, 2]); // target IP: 10.0.2.2 (QEMU gateway)
-//
-//     // self.send_packet(&packet);
-//     super::nic::rtl8139::RTL
-//         .get()
-//         .unwrap()
-//         .lock()
-//         .send_packet(&packet);
-// }
+lazy_static! {
+    pub static ref ARP_TABLE: Mutex<HashMap<u32, MacAddress>> = Mutex::new(HashMap::new());
+}
+
+pub fn handle_arp(p: &ArpPacket) {
+    println!("Handling arp");
+    if p.operation == 2 {
+        // reply
+        ARP_TABLE
+            .lock()
+            .insert(p.sender_protocol_address, p.sender_hardware_address);
+    }
+    println!("table: {:?}", ARP_TABLE.lock());
+}
 
 pub enum ArpError {
     PacketNotLongEnough,
@@ -57,17 +43,22 @@ pub struct ArpPacket {
     hardware_length: u8,
     /// For ipv4, always 4 bytes
     protocol_length: u8,
+
     /// 1 is request, 2 is reply
     operation: u16,
+
     /// Indicate the address of the host sending the request.
     /// In a reply, indicates the address of the host that the request was looking for
     sender_hardware_address: MacAddress,
+
     /// ip address of the sender
     sender_protocol_address: u32,
+
     /// In a request, this field is ignored.
     /// In a reply this field is used to indicate the address of the host that originated the ARP
     /// request
     target_hardware_address: MacAddress,
+
     /// ip address of intended receiver
     target_protocol_address: u32,
 }
@@ -144,6 +135,7 @@ impl ArpPacket {
             target_protocol_address: target_ip,
         }
     }
+
     pub fn to_bytes(&self) -> [u8; 28] {
         let mut bytes = [0u8; 28];
 

@@ -3,6 +3,7 @@ use core::hint::spin_loop;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
 
+#[derive(Debug)]
 pub struct Mutex<T> {
     lock: AtomicBool,
     data: UnsafeCell<T>,
@@ -11,6 +12,7 @@ pub struct Mutex<T> {
 unsafe impl<T: Send> Sync for Mutex<T> {}
 unsafe impl<T: Send> Send for Mutex<T> {}
 
+#[derive(Debug)]
 pub struct MutexGuard<'a, T> {
     lock: &'a AtomicBool,
     data: &'a mut T,
