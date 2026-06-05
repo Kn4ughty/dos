@@ -13,7 +13,6 @@ use os::{
     mem::{self, allocator},
     net, vga_println,
 };
-use x86_64::instructions::interrupts::without_interrupts;
 
 #[cfg(feature = "bootimage")]
 entry_point!(bootimage_start);
@@ -38,9 +37,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     net::init();
 
-    without_interrupts(|| {
-        net::send_arp();
-    });
+    net::test_packet();
 
     #[cfg(test)]
     test_main();

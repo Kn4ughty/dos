@@ -22,11 +22,8 @@ test-args = [
 run-args = [
     "-serial", "stdio",
     "-device", "rtl8139,netdev=net0",
-    # "-netdev", "tap,id=net0,ifname=tap0,script=no,downscript=no"
-    "-netdev", "user,id=net0",
+    "-netdev", "tap,id=net0,ifname=tap0,script=no,downscript=no",
     "-object", "filter-dump,id=f1,netdev=net0,file=dump.dat"
-    # "-net", "dump",
-    # "-object", "filter-dump,id=net0,netdev=dev,file=cap",
 ]
 test-success-exit-code = 33
 test-timeout = 300 #seconds

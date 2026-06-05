@@ -1,10 +1,16 @@
+use crate::tryfrom::tryfrom;
+
 #[derive(Debug)]
 pub enum EthernetError {
     MACWrongLengthSlice,
     EthernetPacketNotLongEnough,
+    UnknownEtherType,
 }
 
-pub struct MacAddress([u8; 6]);
+#[derive(Clone, Copy)]
+pub struct MacAddress(pub [u8; 6]);
+
+pub const BROADCAST_MAC: MacAddress = const { MacAddress([0xff; 6]) };
 
 impl core::fmt::Debug for MacAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -29,12 +35,18 @@ impl TryFrom<&[u8]> for MacAddress {
     }
 }
 
+impl From<[u8; 6]> for MacAddress {
+    fn from(value: [u8; 6]) -> Self {
+        MacAddress(value)
+    }
+}
+
 #[derive(Debug)]
 pub struct EthernetPacket<'a> {
-    destination: MacAddress,
-    source: MacAddress,
-    typ: u16,
-    data: &'a [u8],
+    pub destination: MacAddress,
+    pub source: MacAddress,
+    pub typ: EtherType,
+    pub data: &'a [u8],
 }
 
 impl<'a> TryFrom<&'a [u8]> for EthernetPacket<'a> {
@@ -48,8 +60,32 @@ impl<'a> TryFrom<&'a [u8]> for EthernetPacket<'a> {
         Ok(EthernetPacket {
             destination: MacAddress::try_from(&v[0..6]).unwrap(),
             source: MacAddress::try_from(&v[6..12]).unwrap(),
-            typ: u16::from_be_bytes(v[12..14].try_into().unwrap()),
+            typ: EtherType::try_from(u16::from_be_bytes(v[12..14].try_into().unwrap()))
+                .map_err(|_| EthernetError::UnknownEtherType)?,
             data: &v[14..v.len()],
         })
     }
+}
+
+impl<'a> EthernetPacket<'a> {
+    pub fn write_into(&self, buf: &mut [u8]) {
+        buf[0..6].copy_from_slice(&self.destination.0);
+        buf[6..12].copy_from_slice(&self.source.0);
+        buf[12..14].copy_from_slice(&(self.typ as u16).to_be_bytes());
+        buf[14..14 + self.data.len()].copy_from_slice(self.data);
+    }
+
+    pub fn total_len(&self) -> usize {
+        14 + self.data.len()
+    }
+}
+
+tryfrom! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[repr(u16)]
+    #[non_exhaustive]
+    pub enum EtherType {
+        IPv4 = 0x0800,
+        Arp = 0x0806,
+    }, u16
 }

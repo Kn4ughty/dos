@@ -6,6 +6,7 @@ use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
 
 use crate::mem::{self, phys::PhysBuf};
+use crate::net::ethernet::MacAddress;
 use crate::port::Port;
 use crate::println;
 use crate::spinlock::Mutex;
@@ -362,7 +363,7 @@ impl RTL8139 {
         }
     }
 
-    pub fn get_mac(&mut self) -> [u8; 6] {
-        self.ports.get_mac()
+    pub fn get_mac(&mut self) -> MacAddress {
+        MacAddress::from(self.ports.get_mac())
     }
 }

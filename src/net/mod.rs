@@ -1,15 +1,23 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use conquer_once::spin::OnceCell;
 use core::task::{Context, Poll};
 use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
+use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::println;
+use crate::{
+    net::{ethernet::EtherType, nic::rtl8139::RTL},
+    println,
+};
 
+mod arp;
 mod ethernet;
+mod ip;
 mod nic;
 
 use ethernet::EthernetPacket;
+
+const IP: u32 = const { u32::from_be_bytes([192, 168, 10, 2]) };
 
 const PACKET_QUEUE_SIZE: usize = 4;
 static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
@@ -17,39 +25,25 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 
 // static EthernetDevice: OnceCell<RTL8139> = OnceCell::uninit();
 
+pub fn test_packet() {
+    let mac = RTL.get().unwrap().lock().get_mac();
+    let arp = arp::ArpPacket::new_arp_request(mac, IP, u32::from_be_bytes([192, 168, 10, 1]));
+    let ep = EthernetPacket {
+        destination: ethernet::BROADCAST_MAC,
+        typ: EtherType::Arp,
+        source: mac,
+        data: &arp.to_bytes(),
+    };
+    let mut buf = vec![0u8; ep.total_len()];
+    ep.write_into(&mut buf.as_mut_slice());
+    without_interrupts(|| RTL.get().unwrap().lock().send_packet(&buf.as_mut_slice()))
+}
+
 pub fn init() {
     PACKET_QUEUE
         .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
         .expect("packet queue already init");
     nic::rtl8139::find_rtl();
-}
-
-pub fn send_arp() {
-    // ARP packet: who has 10.0.2.2? tell 10.0.2.15
-    // (QEMU's default gateway is 10.0.2.2, guest is 10.0.2.15)
-    let mut packet = [0u8; 42];
-
-    // Ethernet header
-    packet[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // dst: broadcast
-
-    let mac = nic::rtl8139::RTL.get().unwrap().lock().get_mac();
-
-    packet[6..12].copy_from_slice(&mac); // src: our mac
-    packet[12..14].copy_from_slice(&[0x08, 0x06]); // ethertype: ARP
-
-    // ARP body
-    packet[14..16].copy_from_slice(&[0x00, 0x01]); // hardware type: ethernet
-    packet[16..18].copy_from_slice(&[0x08, 0x00]); // protocol type: IPv4
-    packet[18] = 6; // hardware size
-    packet[19] = 4; // protocol size
-    packet[20..22].copy_from_slice(&[0x00, 0x01]); // opcode: request
-    packet[22..28].copy_from_slice(&mac); // sender mac
-    packet[28..32].copy_from_slice(&[10, 0, 2, 15]); // sender IP: 10.0.2.15
-    packet[32..38].copy_from_slice(&[0, 0, 0, 0, 0, 0]); // target mac: unknown
-    packet[38..42].copy_from_slice(&[10, 0, 2, 2]); // target IP: 10.0.2.2 (QEMU gateway)
-
-    // self.send_packet(&packet);
-    nic::rtl8139::RTL.get().unwrap().lock().send_packet(&packet);
 }
 
 pub fn push_packet(packet: Vec<u8>) {
@@ -100,9 +94,11 @@ pub async fn get_packet() {
     let mut nns = NetworkStream {};
 
     loop {
-        if let Some(packet) = nns.next().await {
-            let ep = EthernetPacket::try_from(packet.as_slice());
-            println!("received ep: {:?}", ep);
+        if let Some(packet) = nns.next().await
+            && let Ok(ep) = EthernetPacket::try_from(packet.as_slice())
+        {
+            if ep.typ == EtherType::Arp {}
+            // println!("received ep: {:?}", ep);
         }
     }
 }
