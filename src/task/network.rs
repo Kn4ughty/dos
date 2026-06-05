@@ -1,36 +1,71 @@
+use alloc::vec::Vec;
+use conquer_once::spin::OnceCell;
 use core::task::{Context, Poll};
-use futures_util::{Stream, StreamExt};
+use crossbeam_queue::ArrayQueue;
+use futures_util::{Stream, StreamExt, task::AtomicWaker};
 
-use crate::pci::rtl8139::{self, RTL8139};
 use crate::println;
 
-pub struct NetworkStream {
-    // rtl: RTL8139,
+const PACKET_QUEUE_SIZE: usize = 4;
+static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
+static WAKER: AtomicWaker = AtomicWaker::new();
+
+pub fn init() {
+    PACKET_QUEUE
+        .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
+        .expect("packet queue already init");
 }
 
-impl Stream for NetworkStream {
-    type Item = ();
+pub fn push_packet(packet: Vec<u8>) {
+    let Ok(queue) = PACKET_QUEUE.try_get() else {
+        println!("Packet queue not made. Dropping packet");
+        return;
+    };
 
-    fn poll_next(
-        mut self: core::pin::Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        println!("Getting packet");
-        let _res = rtl8139::RTL
-            .get()
-            .expect("RTL should already be init")
-            .lock()
-            .receive_packet();
-        // println!("poll res: {:?}", res);
-
-        Poll::Pending
+    if queue.push(packet).is_ok() {
+        WAKER.wake();
+    } else {
+        println!("Packet queue fulL! Dropping packet");
     }
 }
 
+pub struct NetworkStream {}
+
+impl Stream for NetworkStream {
+    type Item = Vec<u8>;
+
+    fn poll_next(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        println!("Getting packet");
+
+        let queue = PACKET_QUEUE
+            .try_get()
+            .expect("packet queue not initialised!");
+
+        if let Some(packet) = queue.pop() {
+            return Poll::Ready(Some(packet));
+        }
+        WAKER.register(cx.waker());
+
+        match queue.pop() {
+            Some(packet) => {
+                WAKER.take();
+                Poll::Ready(Some(packet))
+            }
+            None => Poll::Pending,
+        }
+    }
+}
+
+/// Init must be called before this
 pub async fn get_packet() {
     let mut nns = NetworkStream {};
 
-    while let Some(_) = nns.next().await {
-        println!("omg gt some:");
+    loop {
+        if let Some(packet) = nns.next().await {
+            println!("omg gt some: {:?}", packet);
+        }
     }
 }

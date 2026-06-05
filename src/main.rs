@@ -39,6 +39,8 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
+    os::task::network::init();
+
     find_rtl();
 
     // rtl.init();

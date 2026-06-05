@@ -2,11 +2,13 @@
 // https://wiki.osdev.org/RTL8139
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
 use core::fmt::Write;
+use core::usize;
 
-use crate::mem::phys::PhysBuf;
+use crate::mem::{self, phys::PhysBuf};
 use crate::port::Port;
 use crate::println;
 use crate::spinlock::Mutex;
@@ -32,6 +34,7 @@ const RX_BUFFER_LEN: usize = 8192;
 
 // Receive status register flags
 bitflags! {
+    #[derive(Debug)]
     struct ReceiveStatus: u16 {
         /// Receive Ok
         const ROK = 1;
@@ -117,16 +120,17 @@ bitflags! {
 // }
 
 // For the source of these offsets, see http://realtek.info/pdf/rtl8139d.pdf § Register Descriptions
-#[expect(unused)]
 #[derive(Debug)]
 pub struct Ports {
     pub mac: [Port<u8>; 6],
     pub tx_status0: Port<u32>,
     pub tx_start_addr0: Port<u32>,
-    // Receive (Rx) buffer Start Address. RBSTART
+    /// Receive (Rx) buffer Start Address. RBSTART
     pub receive_buffer_start: Port<u32>,
     pub command_reg: Port<u8>,
-    // Reflects total received byte count in rx buffer
+    /// Current address of packet read
+    pub capr: Port<u16>,
+    /// Reflects total received byte count in rx buffer
     pub current_buffer_address: Port<u16>,
     pub interrupt_mask: Port<u16>,
     pub interrupt_status: Port<u16>,
@@ -155,6 +159,7 @@ impl Ports {
             tx_start_addr0: Port::new(io_base + 0x20),
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
+            capr: Port::new(io_base + 0x38),
             current_buffer_address: Port::new(io_base + 0x3A),
             interrupt_mask: Port::new(io_base + 0x3C),
             interrupt_status: Port::new(io_base + 0x3E),
@@ -180,9 +185,10 @@ impl Ports {
 }
 
 pub struct RTL8139 {
-    pub ports: Ports,
+    ports: Ports,
     rx_buf: PhysBuf,
     tx_buf: PhysBuf,
+    rx_offset: usize,
 }
 
 impl RTL8139 {
@@ -192,6 +198,7 @@ impl RTL8139 {
             ports: Ports::new(io_base),
             rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD),
             tx_buf: PhysBuf::new(2048),
+            rx_offset: 0,
         }
     }
 
@@ -315,17 +322,48 @@ impl RTL8139 {
         }
     }
 
-    pub fn receive_packet(&mut self) -> Option<()> {
+    pub fn receive_packet(&mut self) -> Option<Vec<u8>> {
         let cmd = unsafe { self.ports.command_reg.read() };
         if (cmd & 1) == 1 {
             return None;
         }
-        println!("cmd set!");
 
-        // let cba = unsafe {
-        //     self.ports.
-        // }
-        Some(())
+        let offset = self.rx_offset;
+
+        // //  offset address of packet start
+        // let offset = (unsafe { self.ports.capr.read() } as usize + RX_BUFFER_PAD) % RX_BUFFER_LEN;
+
+        let header = ReceiveStatus::from_bits_retain(u16::from_le_bytes(
+            self.rx_buf.buf[offset..offset + 2].try_into().unwrap(),
+        ));
+
+        if !header.contains(ReceiveStatus::ROK) {
+            println!("WARNING: Error receiving packet! {:?}", header);
+            // need to cleanup
+
+            return None;
+        }
+        let pkt_length = u16::from_le_bytes(
+            self.rx_buf.buf[(offset + 2)..(offset + 4)]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+
+        let out = self.rx_buf.buf[(offset + 4)..(offset + pkt_length)].to_vec();
+
+        // We must advance capr to tell hardware we are done with this region of buffer
+
+        // let capr = unsafe { self.ports.capr.read() };
+
+        self.rx_offset = mem::align_up(offset + pkt_length + 4, 4) % RX_BUFFER_LEN;
+
+        unsafe {
+            self.ports
+                .capr
+                .write((self.rx_offset as u16).wrapping_sub(RX_BUFFER_PAD as u16));
+        }
+
+        Some(out)
     }
 
     pub fn handle_interrupt(&mut self) {
@@ -340,8 +378,10 @@ impl RTL8139 {
         }
 
         if (status & InterruptMask::ROK.bits()) != 0 {
-            println!("ROK SET");
-            self.receive_packet();
+            println!("Receiving packet");
+            if let Some(packet) = self.receive_packet() {
+                crate::task::network::push_packet(packet);
+            }
         }
 
         if (status & InterruptMask::TOK.bits()) != 0 {
