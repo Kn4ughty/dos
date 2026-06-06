@@ -79,7 +79,7 @@ bitflags! {
 }
 
 bitflags! {
-    struct TransmitStatus: u16 {
+    struct TransmitStatus: u32 {
         /// the rtl8139d sets this bit to 1 when Tx DMA op is completed
         const OWN = 1 << 13;
         /// Transmit ok
@@ -127,9 +127,8 @@ bitflags! {
 #[derive(Debug)]
 struct Ports {
     pub mac: [Port<u8>; 6],
-    pub tx_status0: Port<u32>,
-    pub tx_start_addr0: Port<u32>,
-    /// Receive (Rx) buffer Start Address. RBSTART
+    pub tx_status: [Port<u32>; 4],
+    pub tx_start_addr: [Port<u32>; 4],
     pub receive_buffer_start: Port<u32>,
     pub command_reg: Port<u8>,
     /// Current address of packet read
@@ -159,8 +158,20 @@ impl Ports {
                 Port::new(io_base + 0x04),
                 Port::new(io_base + 0x05),
             ],
-            tx_status0: Port::new(io_base + 0x10),
-            tx_start_addr0: Port::new(io_base + 0x20),
+            tx_status: [
+                Port::new(io_base + 0x10),
+                Port::new(io_base + 0x14),
+                Port::new(io_base + 0x18),
+                Port::new(io_base + 0x1C),
+            ],
+            tx_start_addr: [
+                Port::new(io_base + 0x20),
+                Port::new(io_base + 0x24),
+                Port::new(io_base + 0x28),
+                Port::new(io_base + 0x2C),
+            ],
+            // tx_status0: Port::new(io_base + 0x10),
+            // tx_start_addr0: Port::new(io_base + 0x20),
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
             capr: Port::new(io_base + 0x38),
@@ -193,6 +204,7 @@ pub struct RTL8139 {
     rx_buf: PhysBuf,
     tx_buf: PhysBuf,
     rx_offset: usize,
+    tx_desc: usize,
 }
 
 impl RTL8139 {
@@ -220,6 +232,7 @@ impl RTL8139 {
             rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD),
             tx_buf: PhysBuf::new(TX_BUFFER_SIZE),
             rx_offset: 0,
+            tx_desc: 0,
         })
     }
 
@@ -275,29 +288,32 @@ impl RTL8139 {
     }
 
     pub fn handle_interrupt(&mut self) {
-        let status = unsafe { self.ports.interrupt_status.read() };
+        loop {
+            let status = unsafe { self.ports.interrupt_status.read() };
 
-        if status == 0 {
-            return;
-        }
-
-        unsafe {
-            self.ports.interrupt_status.write(status);
-        }
-
-        if (status & InterruptMask::ROK.bits()) != 0 {
-            println!("Receiving packet");
-            if let Some(packet) = self.receive_packet() {
-                super::super::push_packet(packet);
+            if status == 0 {
+                return;
             }
-        }
 
-        if (status & InterruptMask::TOK.bits()) != 0 {
-            println!("Packet transmitted successfully!");
-        }
+            unsafe {
+                self.ports.interrupt_status.write(status);
+            }
 
-        if (status & InterruptMask::RER.bits()) != 0 {
-            println!("Receive error occured!");
+            if (status & InterruptMask::ROK.bits()) != 0 {
+                println!("Receiving packet");
+                if let Some(packet) = self.receive_packet() {
+                    super::super::push_packet(packet);
+                }
+            }
+
+            if (status & InterruptMask::TOK.bits()) != 0 {
+                println!("Packet transmitted successfully!");
+                super::super::notify_tx_complete();
+            }
+
+            if (status & InterruptMask::RER.bits()) != 0 {
+                println!("Receive error occured!");
+            }
         }
     }
 
@@ -310,21 +326,29 @@ impl EthernetDevice for RTL8139 {
     fn send_packet(&mut self, packet: &EthernetFrame) {
         let packet = packet.as_bytes();
         let len = packet.len();
-
         assert!(len <= TX_BUFFER_SIZE, "too much data");
 
-        self.tx_buf.buf[..len].copy_from_slice(packet);
+        let desc = self.tx_desc;
+        self.tx_desc = (self.tx_desc + 1) % 4;
 
+        let tx_status = &mut self.ports.tx_status[desc];
+        let tx_address = &mut self.ports.tx_start_addr[desc];
+
+        unsafe {
+            while {
+                !TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN)
+            } {
+                core::hint::spin_loop();
+            }
+        }
+
+        self.tx_buf.buf[..len].copy_from_slice(packet);
         let phys = self.tx_buf.addr();
+
         println!("send_packet: phys={:#010x}, len={}", phys, len);
         unsafe {
-            self.ports
-                .tx_start_addr0
-                .write(u32::try_from(phys).expect("addr fits"));
-
-            self.ports
-                .tx_status0
-                .write(u32::try_from(packet.len()).expect("too much data") & 0x1FFF);
+            tx_address.write(u32::try_from(phys).expect("addr ffits"));
+            tx_status.write(u32::try_from(len).expect("too much data") & 0x1FFF);
         }
     }
 

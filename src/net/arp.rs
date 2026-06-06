@@ -26,6 +26,11 @@ pub fn handle_arp(p: &ArpPacket, interface: &Interface) {
                 return;
             }
 
+            // Learn sender's mac while we can
+            ARP_TABLE
+                .lock()
+                .insert(p.sender_protocol_address, p.sender_hardware_address);
+
             println!("Arp matches, sending reply");
             let arp = ArpPacket::new_arp_reply(
                 interface.config.mac,

@@ -1,13 +1,64 @@
+use alloc::{vec, vec::Vec};
+use x86_64::instructions::interrupts::without_interrupts;
+
 use crate::{
-    net::Interface,
+    net::{
+        Interface, arp,
+        ethernet::{self, EthernetPacket},
+        ip::IPv4Packet,
+        ones_complement_checksum,
+    },
     println,
-    tryfrom::{tryfrom, tryfrom2arg},
+    tryfrom::{TryFrom2argAndReverse, tryfrom},
 };
 
-pub fn handle_icmp(packet: ICMPPacket, interface: Interface) {
+pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
+    // Packet already validated to have us as its destination
+    let Ok(icmpp) = ICMPPacket::try_from(packet.data) else {
+        return;
+    };
+
     println!("handling icmp: {:?}", packet);
-    if packet.typ == ControlMessageType::EchoRequest(NoSubcode::NoCode) {
-        println!("omg reply");
+    if icmpp.typ == ControlMessageType::EchoRequest(NoSubcode::NoCode) {
+        let dest_mac = arp::ARP_TABLE
+            .lock()
+            .get(&packet.header.source_address)
+            .copied();
+        let Some(dest_mac) = dest_mac else {
+            println!(
+                "No ARP entry for {}, dropping",
+                packet.header.source_address
+            );
+            // todo, do an arp request
+            return;
+        };
+
+        let mut response = ICMPPacket {
+            typ: ControlMessageType::EchoReply(NoSubcode::NoCode),
+            checksum: 0,
+            other: icmpp.other,
+            data: icmpp.data,
+        };
+        response.calc_new_checksum();
+
+        let resp_bytes = response.to_bytes();
+        let ipv4 = IPv4Packet::from_source_dest_and_data(
+            interface.config.ip,
+            packet.header.source_address,
+            resp_bytes.as_slice(),
+        );
+
+        println!("Sending icmp response: {:?}", ipv4);
+
+        let ip_bytes = ipv4.to_bytes();
+        let ep = EthernetPacket {
+            destination: dest_mac, // fixme,
+            source: interface.config.mac,
+            typ: ethernet::EtherType::IPv4,
+            data: ip_bytes.as_slice(),
+        };
+
+        super::send_frame(interface, ep.into()).await;
     }
 }
 
@@ -36,14 +87,60 @@ impl<'a> TryFrom<&'a [u8]> for ICMPPacket<'a> {
     }
 }
 
+impl ICMPPacket<'_> {
+    /// Replaces the checksum of self with a correct one
+    pub fn calc_new_checksum(&mut self) {
+        self.checksum = 0;
+        let bytes = self.to_bytes();
+        self.checksum = ones_complement_checksum(bytes.as_slice());
+
+        debug_assert_eq!(
+            ones_complement_checksum(self.to_bytes().as_slice()),
+            0,
+            "checksum with self should be 0"
+        );
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0u8; self.total_len()];
+        buf[0] = self.typ.outer_as();
+        buf[1] = self.typ.inner_as();
+        buf[2..=3].copy_from_slice(&self.checksum.to_be_bytes());
+        buf[4..8].copy_from_slice(&self.other.to_be_bytes());
+        buf[8..self.total_len()].copy_from_slice(self.data);
+
+        buf
+    }
+
+    fn total_len(&self) -> usize {
+        8 + self.data.len()
+    }
+}
+
+#[derive(Debug)]
 pub enum ICMPError {
     UnknownControlMessageType,
     PacketNotLongEnough,
 }
 
-tryfrom2arg! {
+#[derive(Debug)]
+pub struct EchoPacket {
+    identifier: u16,
+    sequence_num: u16,
+}
+
+impl From<u32> for EchoPacket {
+    fn from(v: u32) -> Self {
+        EchoPacket {
+            identifier: ((v >> 16) & 0xFFFF) as u16,
+            sequence_num: (v & 0xFFFF) as u16,
+        }
+    }
+}
+
+TryFrom2argAndReverse! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ControlMessageType {
         EchoReply(NoSubcode) = 0,
         DestinationUnreachable(DestinationUnreachableSubcode) = 3,
@@ -76,7 +173,7 @@ tryfrom2arg! {
 // Used for message types that have no meaningful subcodes (code is always 0)
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum NoSubcode {
         NoCode = 0,
     }, u8
@@ -84,7 +181,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum DestinationUnreachableSubcode {
         /// RFC 792
         NetUnreachable                          = 0,
@@ -123,7 +220,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum RedirectSubcode {
         /// Redirect for the network (or subnet)
         RedirectForNetwork         = 0,
@@ -138,7 +235,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum RouterAdvertisementSubcode {
         /// RFC 3344
         NormalRouterAdvertisement  = 0,
@@ -149,7 +246,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum TimeExceededSubcode {
         /// TTL expired in transit — this is what traceroute exploits
         TtlExceededInTransit        = 0,
@@ -160,7 +257,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ParameterProblemSubcode {
         /// Pointer field indicates the octet where the error was detected
         PointerIndicatesError       = 0,
@@ -172,7 +269,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum PhototurisSubcode {
         /// RFC 2521
         BadSpi                 = 0,
@@ -186,7 +283,7 @@ tryfrom! {
 
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ExtendedEchoReplySubcode {
         /// RFC 8335
         NoError                    = 0,

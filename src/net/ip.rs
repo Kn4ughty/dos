@@ -1,18 +1,20 @@
-use crate::println;
-use crate::tryfrom::tryfrom;
+use crate::{println, tryfrom::tryfrom};
 use bitflags::bitflags;
 use core::net::Ipv4Addr;
 
-use crate::net::Interface;
+use super::{Interface, ones_complement_checksum};
 
-pub fn handle_packet(packet: &IPv4Packet, interface: Interface) {
+pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
+    // TODO handle more ip's like loopback
+    if packet.header.destination_address != interface.config.ip {
+        return;
+    }
     println!("Handling packet with header: {:?}", packet.header);
+
     match packet.header.protocol {
         IPProtocol::Icmp => {
             use super::icmp;
-            if let Ok(icmpp) = icmp::ICMPPacket::try_from(packet.data) {
-                icmp::handle_icmp(icmpp, interface);
-            }
+            icmp::handle_icmp(packet, interface).await;
         }
         IPProtocol::Tcp => {
             // todo
@@ -26,7 +28,7 @@ pub fn handle_packet(packet: &IPv4Packet, interface: Interface) {
 // see https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     pub enum IPProtocol {
         Icmp = 0x01,
         Tcp = 0x06,
@@ -35,39 +37,39 @@ tryfrom! {
 }
 
 #[derive(Debug)]
-struct IPv4Header {
+pub struct IPv4Header {
     // omg noo its not actually 4 bitss, im wasting memoryy 👁️👄👁️
     /// 4 bit version. For ipv4, this is always 4 (lol)
-    version: u8,
+    pub version: u8,
     /// 4 bit header length. Length of the header in 32 bit words.
     /// Minimum is 5.
-    ihl: u8,
+    pub ihl: u8,
     /// 6 bit Differentiated Services Code point
-    dscp: u8,
+    pub dscp: u8,
     /// 2 bit Explicit Congestion notification
-    ecn: u8,
+    pub ecn: u8,
     /// Total size of entire packet in bytes, including header and data
-    total_length: u16,
+    pub total_length: u16,
     /// Used for identifying the group of fragments of a single IP datagram.
-    identification: u16,
+    pub identification: u16,
     /// 3 bit flag field
-    flags: IPv4Flags,
+    pub flags: IPv4Flags,
     /// 13 bit Fragment Offset
-    fragment_offset: u16,
+    pub fragment_offset: u16,
     /// 8 bit Time to live. Specfied in seconds. In practice this is used as a hop count
     /// This is how traceroute works!
-    ttl: u8,
+    pub ttl: u8,
 
     /// 8 bit protocol. Defines the next level protocol.
     /// See <https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers>
-    protocol: IPProtocol,
+    pub protocol: IPProtocol,
 
     /// 16 bit one's complement of all the 16 bit words in the header.
-    header_checksum: u16,
+    pub header_checksum: u16,
 
     /// good old ip address we know and love
-    source_address: Ipv4Addr,
-    destination_address: Ipv4Addr,
+    pub source_address: Ipv4Addr,
+    pub destination_address: Ipv4Addr,
 }
 
 impl TryFrom<[u8; 20]> for IPv4Header {
@@ -111,8 +113,8 @@ pub enum IpError {
 
 #[derive(Debug)]
 pub struct IPv4Packet<'a> {
-    header: IPv4Header,
-    data: &'a [u8],
+    pub header: IPv4Header,
+    pub data: &'a [u8],
 }
 
 impl<'a> TryFrom<&'a [u8]> for IPv4Packet<'a> {
@@ -128,5 +130,66 @@ impl<'a> TryFrom<&'a [u8]> for IPv4Packet<'a> {
             )?,
             data: &v[20..v.len()],
         })
+    }
+}
+
+impl IPv4Packet<'_> {
+    /// Includes checksum
+    #[must_use]
+    pub fn from_source_dest_and_data(
+        source: Ipv4Addr,
+        destination: Ipv4Addr,
+        data: &[u8],
+    ) -> IPv4Packet {
+        let total_len = (20 + data.len()) as u16;
+        let p = IPv4Packet {
+            header: IPv4Header {
+                version: 4,
+                ihl: 5,
+                dscp: 0,
+                ecn: 0,
+                total_length: total_len,
+                identification: 0xFEED,
+                flags: IPv4Flags::empty(),
+                fragment_offset: 0,
+                ttl: 20,
+                protocol: IPProtocol::Icmp,
+                header_checksum: 0,
+                source_address: source,
+                destination_address: destination,
+            },
+            data,
+        };
+
+        p.with_checksum()
+    }
+    pub fn to_bytes(&self) -> alloc::vec::Vec<u8> {
+        let h = &self.header;
+        let mut buf = alloc::vec![0u8; 20 + self.data.len()];
+
+        buf[0] = (h.version << 4) | (h.ihl & 0xF);
+        buf[1] = (h.dscp << 2) | (h.ecn & 0b11);
+        buf[2..4].copy_from_slice(&h.total_length.to_be_bytes());
+        buf[4..6].copy_from_slice(&h.identification.to_be_bytes());
+        // Flags in top 3 bits, fragment offset in low 13
+        let flags_and_offset: u16 = ((h.flags.bits() as u16) << 13) | (h.fragment_offset & 0x1FFF);
+        buf[6..8].copy_from_slice(&flags_and_offset.to_be_bytes());
+        buf[8] = h.ttl;
+        buf[9] = h.protocol as u8;
+        buf[10..12].copy_from_slice(&h.header_checksum.to_be_bytes());
+        buf[12..16].copy_from_slice(&h.source_address.octets());
+        buf[16..20].copy_from_slice(&h.destination_address.octets());
+        buf[20..].copy_from_slice(self.data);
+
+        buf
+    }
+
+    /// Calculates new checksum for packet.
+    /// Use after construction
+    pub fn with_checksum(mut self) -> Self {
+        self.header.header_checksum = 0;
+        let bytes = self.to_bytes();
+        self.header.header_checksum = ones_complement_checksum(&bytes[..20]);
+        self
     }
 }

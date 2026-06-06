@@ -2,10 +2,12 @@ use alloc::vec::Vec;
 use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
 };
 use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
+use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
     net::{ethernet::EtherType, nic::rtl8139::RTL},
@@ -20,13 +22,36 @@ mod nic;
 
 use ethernet::{EthernetFrame, EthernetPacket};
 
-// const IP: u32 = const { u32::from_be_bytes([192, 168, 10, 2]) };
-
 const PACKET_QUEUE_SIZE: usize = 16;
 static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-// static EthernetDevice: OnceCell<RTL8139> = OnceCell::uninit();
+static TX_WAKER: AtomicWaker = AtomicWaker::new();
+static TX_COMPLETE: AtomicBool = AtomicBool::new(false);
+
+pub fn notify_tx_complete() {
+    TX_COMPLETE.store(true, Ordering::Release);
+    TX_WAKER.wake();
+}
+
+pub async fn send_frame(interface: Interface, frame: EthernetFrame) {
+    TX_COMPLETE.store(false, Ordering::Release);
+    without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
+
+    futures_util::future::poll_fn(|cx| {
+        if TX_COMPLETE.load(Ordering::Acquire) {
+            Poll::Ready(())
+        } else {
+            TX_WAKER.register(cx.waker());
+            if TX_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        }
+    })
+    .await;
+}
 
 /// Config for a single network interface
 #[derive(Clone, Copy)]
@@ -64,20 +89,6 @@ trait EthernetDevice {
     fn send_packet(&mut self, frame: &EthernetFrame);
     fn receive_packet(&mut self) -> Option<Vec<u8>>;
 }
-
-// pub fn test_packet() {
-//     let mac = RTL.get().unwrap().lock().get_mac();
-//     let arp = arp::ArpPacket::new_arp_request(mac, IP, u32::from_be_bytes([192, 168, 10, 1]));
-//     let ep = EthernetPacket {
-//         destination: ethernet::BROADCAST_MAC,
-//         typ: EtherType::Arp,
-//         source: mac,
-//         data: &arp.to_bytes(),
-//     };
-//     let mut buf = vec![0u8; ep.total_len()];
-//     ep.write_into(buf.as_mut_slice());
-//     without_interrupts(|| RTL.get().unwrap().lock().send_packet(buf.as_mut_slice()));
-// }
 
 pub fn init() {
     PACKET_QUEUE
@@ -155,10 +166,31 @@ pub async fn get_packet() {
                 EtherType::IPv4 => {
                     if let Ok(ip_packet) = ip::IPv4Packet::try_from(ep.data) {
                         // println!("{:?}", ip_packet);
-                        ip::handle_packet(&ip_packet, intf);
+                        ip::handle_packet(&ip_packet, intf).await;
                     }
                 }
             }
         }
     }
+}
+
+fn ones_complement_checksum(data: &[u8]) -> u16 {
+    let mut sum: u32 = 0;
+
+    let mut chunks = data.chunks_exact(2);
+    for chunk in chunks.by_ref() {
+        sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+    }
+
+    if let Some(&leftover) = chunks.remainder().first() {
+        sum += u32::from(u16::from_be_bytes([leftover, 0]));
+    }
+
+    // fold cary bits
+    while sum >> 16 != 0 {
+        sum = (sum & 0xFF_FF) + (sum >> 16);
+    }
+
+    #[expect(clippy::cast_possible_truncation)]
+    !(sum as u16)
 }

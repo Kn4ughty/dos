@@ -108,11 +108,12 @@ pub fn exit_qemu(exit_code: QemuExitCode) -> ! {
 }
 
 pub fn hlt_loop() -> ! {
-    use core::arch::asm;
-    loop {
-        // Safe since it cannot possibly compromise memory safety
-        unsafe { asm!("hlt") }
-    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        loop {
+            // Safe since it cannot possibly compromise memory safety
+            x86_64::instructions::hlt();
+        }
+    })
 }
 
 pub fn init() {

@@ -52,3 +52,45 @@ macro_rules! tryfrom2arg {
     }
 }
 pub(crate) use tryfrom2arg;
+
+macro_rules! TryFrom2argAndReverse {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $( $(#[$vmeta:meta])* $variant:ident ($name2:ident) = $val:expr,)*
+    }, $type:ty) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $( $(#[$vmeta])* $variant ($name2) = $val,)*
+        }
+
+
+        impl TryFrom<($type, $type)> for $name {
+            type Error = $type;
+
+            fn try_from(tup: ($type,$type)) -> Result<Self, Self::Error> {
+                let (v1, v2) = tup;
+
+                match v1 {
+                    $($val => {
+                        Ok($name::$variant($name2::try_from(v2)?))
+                    },)*
+                    _ => Err(v1)
+                }
+            }
+        }
+
+        impl $name {
+            pub fn outer_as(&self) -> $type {
+                match self {
+                    $(Self::$variant(_) => $val),*
+                }
+            }
+
+            pub fn inner_as(&self) -> $type {
+                match self {
+                    $(Self::$variant(c) => *c as $type),*
+                }
+            }
+        }
+    }
+}
+pub(crate) use TryFrom2argAndReverse;
