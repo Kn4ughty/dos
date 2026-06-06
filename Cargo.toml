@@ -22,7 +22,8 @@ test-args = [
 run-args = [
     "-serial", "stdio",
     "-device", "rtl8139,netdev=net0",
-    "-netdev", "bridge,br=br0,id=net0,helper=/run/wrappers/bin/qemu-bridge-helper",
+    # "-netdev", "bridge,br=br0,id=net0,helper=/run/wrappers/bin/qemu-bridge-helper", # allows vm to act in local network
+    "-netdev", "tap,id=net0,ifname=tap0,script=no,downscript=no",
     "-object", "filter-dump,id=f1,netdev=net0,file=dump.dat"
 ]
 test-success-exit-code = 33

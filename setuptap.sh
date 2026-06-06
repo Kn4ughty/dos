@@ -4,7 +4,9 @@ sudo ip link del tap0 2>/dev/null
 
 sudo ip tuntap add dev tap0 mode tap
 
-sudo ip link set tap0 master br0
+sudo ip addr add 192.168.10.1/24 dev tap0
+
+# sudo ip link set tap0 master br0
 
 sudo ip link set tap0 up
 
