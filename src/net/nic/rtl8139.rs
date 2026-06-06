@@ -6,6 +6,7 @@ use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
 
 use crate::mem::{self, phys::PhysBuf};
+use crate::net::ethernet::EthernetFrame;
 use crate::net::{EthernetDevice, ethernet::MacAddress};
 use crate::port::Port;
 use crate::println;
@@ -306,7 +307,8 @@ impl RTL8139 {
 }
 
 impl EthernetDevice for RTL8139 {
-    fn send_packet(&mut self, packet: &[u8]) {
+    fn send_packet(&mut self, packet: &EthernetFrame) {
+        let packet = packet.as_bytes();
         let len = packet.len();
 
         assert!(len <= TX_BUFFER_SIZE, "too much data");

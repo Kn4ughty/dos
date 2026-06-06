@@ -17,7 +17,7 @@ mod ethernet;
 mod ip;
 mod nic;
 
-use ethernet::EthernetPacket;
+use ethernet::{EthernetFrame, EthernetPacket};
 
 // const IP: u32 = const { u32::from_be_bytes([192, 168, 10, 2]) };
 
@@ -58,7 +58,7 @@ pub struct Interface {
 }
 
 trait EthernetDevice {
-    fn send_packet(&mut self, packet: &[u8]);
+    fn send_packet(&mut self, frame: &EthernetFrame);
     fn receive_packet(&mut self) -> Option<Vec<u8>>;
 }
 

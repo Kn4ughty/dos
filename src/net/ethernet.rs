@@ -1,4 +1,5 @@
 use crate::tryfrom::tryfrom;
+use alloc::{vec, vec::Vec};
 
 #[derive(Debug)]
 pub enum EthernetError {
@@ -77,6 +78,21 @@ impl EthernetPacket<'_> {
 
     pub fn total_len(&self) -> usize {
         14 + self.data.len()
+    }
+}
+
+pub struct EthernetFrame(Vec<u8>);
+
+impl From<EthernetPacket<'_>> for EthernetFrame {
+    fn from(ep: EthernetPacket<'_>) -> Self {
+        let mut buf = vec![0u8; ep.total_len()];
+        ep.write_into(buf.as_mut_slice());
+        EthernetFrame(buf)
+    }
+}
+impl EthernetFrame {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_slice()
     }
 }
 

@@ -2,7 +2,6 @@ use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
 use crate::println;
 use crate::spinlock::Mutex;
-use alloc::vec;
 use core::net::Ipv4Addr;
 
 use super::ethernet::MacAddress;
@@ -21,31 +20,33 @@ pub fn handle_arp(p: &ArpPacket, interface: &Interface) {
         1 => {
             // Request
             println!("arp_requst: {:?}", p);
-            if p.target_protocol_address == interface.config.ip {
-                println!("Arp matches, sending reply");
-                let arp = ArpPacket::new_arp_reply(
-                    interface.config.mac,
-                    interface.config.ip,
-                    p.sender_hardware_address,
-                    p.sender_protocol_address,
-                );
 
-                let arp_bytes = arp.to_bytes();
-                let ep = EthernetPacket {
-                    destination: p.sender_hardware_address,
-                    source: interface.config.mac,
-                    typ: EtherType::Arp,
-                    data: &arp_bytes,
-                };
-                let mut buf = vec![0u8; ep.total_len()];
-                ep.write_into(buf.as_mut_slice());
-                println!("Arp beign sent: {:?}", ep);
-                without_interrupts(|| {
-                    interface
-                        .which
-                        .with_device(|dev| dev.send_packet(buf.as_slice()));
-                });
+            // Ignore packets not addressed to ourselves
+            if p.target_protocol_address != interface.config.ip {
+                return;
             }
+
+            println!("Arp matches, sending reply");
+            let arp = ArpPacket::new_arp_reply(
+                interface.config.mac,
+                interface.config.ip,
+                p.sender_hardware_address,
+                p.sender_protocol_address,
+            );
+
+            let arp_bytes = arp.to_bytes();
+            let ep = EthernetPacket {
+                destination: p.sender_hardware_address,
+                source: interface.config.mac,
+                typ: EtherType::Arp,
+                data: &arp_bytes,
+            };
+
+            without_interrupts(|| {
+                interface
+                    .which
+                    .with_device(|dev| dev.send_packet(&ep.into()));
+            });
         }
         2 => {
             // Reply
