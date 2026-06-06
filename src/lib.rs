@@ -58,15 +58,13 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     () => {
-        $crate::vga_print!("\n");
+        // $crate::vga_print!("\n");
         $crate::serial_print!("\n")
     };
-    ($($arg:tt)*) => {
-        {
-            $crate::vga_print!("{}\n", format_args!($($arg)*));
-            $crate::serial_print!("{}\n", format_args!($($arg)*));
-        }
-    };
+    ($($arg:tt)*) => {{
+        // $crate::vga_print!("{}\n", format_args!($($arg)*));
+        $crate::serial_print!("{}\n", format_args!($($arg)*));
+    }};
 }
 
 pub trait Testable {
