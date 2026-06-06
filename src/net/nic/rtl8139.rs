@@ -19,6 +19,7 @@ pub const VENDOR_ID: u16 = 0x10EC;
 pub const DEVICE_ID: u16 = 0x8139;
 
 const RX_BUFFER_PAD: usize = 16;
+const RX_BUFFER_WRAP_PAD: usize = 1500;
 const RX_BUFFER_LEN: usize = 8192;
 
 const TX_BUFFER_SIZE: usize = 2048;
@@ -229,8 +230,8 @@ impl RTL8139 {
 
         Some(Self {
             ports: Ports::new(io_base),
-            rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD),
-            tx_buf: PhysBuf::new(TX_BUFFER_SIZE),
+            rx_buf: PhysBuf::new(RX_BUFFER_LEN + RX_BUFFER_PAD + RX_BUFFER_WRAP_PAD),
+            tx_buf: PhysBuf::new(TX_BUFFER_SIZE * 4),
             rx_offset: 0,
             tx_desc: 0,
         })
@@ -301,7 +302,7 @@ impl RTL8139 {
 
             if (status & InterruptMask::ROK.bits()) != 0 {
                 println!("Receiving packet");
-                if let Some(packet) = self.receive_packet() {
+                while let Some(packet) = self.receive_packet() {
                     super::super::push_packet(packet);
                 }
             }
@@ -334,6 +335,8 @@ impl EthernetDevice for RTL8139 {
         let tx_status = &mut self.ports.tx_status[desc];
         let tx_address = &mut self.ports.tx_start_addr[desc];
 
+        let offset = desc * TX_BUFFER_SIZE;
+
         unsafe {
             while {
                 !TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN)
@@ -342,8 +345,8 @@ impl EthernetDevice for RTL8139 {
             }
         }
 
-        self.tx_buf.buf[..len].copy_from_slice(packet);
-        let phys = self.tx_buf.addr();
+        self.tx_buf.buf[offset..offset + len].copy_from_slice(packet);
+        let phys = self.tx_buf.addr() + (offset as u64);
 
         println!("send_packet: phys={:#010x}, len={}", phys, len);
         unsafe {
