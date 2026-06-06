@@ -1,6 +1,40 @@
+use crate::println;
+use crate::tryfrom::tryfrom;
 use bitflags::bitflags;
 use core::net::Ipv4Addr;
 
+use crate::net::Interface;
+
+pub fn handle_packet(packet: &IPv4Packet, interface: Interface) {
+    println!("Handling packet with header: {:?}", packet.header);
+    match packet.header.protocol {
+        IPProtocol::Icmp => {
+            use super::icmp;
+            if let Ok(icmpp) = icmp::ICMPPacket::try_from(packet.data) {
+                icmp::handle_icmp(icmpp, interface);
+            }
+        }
+        IPProtocol::Tcp => {
+            // todo
+        }
+        IPProtocol::Udp => {
+            // todo
+        }
+    }
+}
+
+// see https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+tryfrom! {
+    #[repr(u8)]
+    #[derive(Debug)]
+    pub enum IPProtocol {
+        Icmp = 0x01,
+        Tcp = 0x06,
+        Udp = 0x11,
+    }, u8
+}
+
+#[derive(Debug)]
 struct IPv4Header {
     // omg noo its not actually 4 bitss, im wasting memoryy 👁️👄👁️
     /// 4 bit version. For ipv4, this is always 4 (lol)
@@ -26,7 +60,7 @@ struct IPv4Header {
 
     /// 8 bit protocol. Defines the next level protocol.
     /// See <https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers>
-    protocol: u8,
+    protocol: IPProtocol,
 
     /// 16 bit one's complement of all the 16 bit words in the header.
     header_checksum: u16,
@@ -36,9 +70,10 @@ struct IPv4Header {
     destination_address: Ipv4Addr,
 }
 
-impl From<[u8; 20]> for IPv4Header {
-    fn from(v: [u8; 20]) -> Self {
-        Self {
+impl TryFrom<[u8; 20]> for IPv4Header {
+    type Error = IpError;
+    fn try_from(v: [u8; 20]) -> Result<Self, Self::Error> {
+        Ok(Self {
             version: (v[0] >> 4) & 0xF,
             ihl: v[0] & 0xF,
             dscp: (v[1] >> 2) & 0b0000_1111,
@@ -46,13 +81,13 @@ impl From<[u8; 20]> for IPv4Header {
             total_length: u16::from_be_bytes(v[2..=3].try_into().unwrap()),
             identification: u16::from_be_bytes(v[4..=5].try_into().unwrap()),
             flags: (IPv4Flags::from_bits_retain(v[6] >> 5)),
-            fragment_offset: u16::from_be_bytes(v[6..=7].try_into().unwrap()) & 0b0011_1111,
+            fragment_offset: u16::from_be_bytes(v[6..=7].try_into().unwrap()) & 0x1FFF,
             ttl: v[8],
-            protocol: v[9],
+            protocol: IPProtocol::try_from(v[9]).map_err(|_| IpError::UnknownProtocol)?,
             header_checksum: u16::from_be_bytes(v[10..=11].try_into().unwrap()),
             source_address: Ipv4Addr::from_octets(v[12..=15].try_into().unwrap()),
             destination_address: Ipv4Addr::from_octets(v[16..=19].try_into().unwrap()),
-        }
+        })
     }
 }
 
@@ -68,7 +103,30 @@ bitflags! {
     }
 }
 
+#[derive(Debug)]
+pub enum IpError {
+    PacketNotLongEnough,
+    UnknownProtocol,
+}
+
+#[derive(Debug)]
 pub struct IPv4Packet<'a> {
     header: IPv4Header,
     data: &'a [u8],
+}
+
+impl<'a> TryFrom<&'a [u8]> for IPv4Packet<'a> {
+    type Error = IpError;
+    fn try_from(v: &'a [u8]) -> Result<Self, Self::Error> {
+        if v.len() < 21 {
+            return Err(IpError::PacketNotLongEnough);
+        }
+
+        Ok(IPv4Packet {
+            header: IPv4Header::try_from(
+                <&[u8] as TryInto<[u8; 20]>>::try_into(&v[0..20]).unwrap(),
+            )?,
+            data: &v[20..v.len()],
+        })
+    }
 }

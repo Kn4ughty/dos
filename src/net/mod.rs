@@ -14,6 +14,7 @@ use crate::{
 
 mod arp;
 mod ethernet;
+mod icmp;
 mod ip;
 mod nic;
 
@@ -28,6 +29,7 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 // static EthernetDevice: OnceCell<RTL8139> = OnceCell::uninit();
 
 /// Config for a single network interface
+#[derive(Clone, Copy)]
 pub struct InterfaceConfig {
     mac: ethernet::MacAddress,
     ip: Ipv4Addr,
@@ -52,6 +54,7 @@ impl WhichInterface {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Interface {
     config: InterfaceConfig,
     which: WhichInterface,
@@ -143,11 +146,18 @@ pub async fn get_packet() {
         if let Some(packet) = nns.next().await
             && let Ok(ep) = EthernetPacket::try_from(packet.as_slice())
         {
-            // blah
-            if ep.typ == EtherType::Arp
-                && let Ok(a) = arp::ArpPacket::try_from(ep.data)
-            {
-                arp::handle_arp(&a, &intf);
+            match ep.typ {
+                EtherType::Arp => {
+                    if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
+                        arp::handle_arp(&a, &intf);
+                    }
+                }
+                EtherType::IPv4 => {
+                    if let Ok(ip_packet) = ip::IPv4Packet::try_from(ep.data) {
+                        // println!("{:?}", ip_packet);
+                        ip::handle_packet(&ip_packet, intf);
+                    }
+                }
             }
         }
     }

@@ -96,6 +96,7 @@ impl EthernetFrame {
     }
 }
 
+// see https://en.wikipedia.org/wiki/EtherType
 tryfrom! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[repr(u16)]
