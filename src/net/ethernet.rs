@@ -67,7 +67,7 @@ impl<'a> TryFrom<&'a [u8]> for EthernetPacket<'a> {
     }
 }
 
-impl<'a> EthernetPacket<'a> {
+impl EthernetPacket<'_> {
     pub fn write_into(&self, buf: &mut [u8]) {
         buf[0..6].copy_from_slice(&self.destination.0);
         buf[6..12].copy_from_slice(&self.source.0);

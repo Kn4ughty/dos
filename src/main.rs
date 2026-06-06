@@ -37,7 +37,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     net::init();
 
-    net::test_packet();
+    // net::test_packet();
 
     #[cfg(test)]
     test_main();

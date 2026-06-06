@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
 
 use crate::mem::{self, phys::PhysBuf};
-use crate::net::ethernet::MacAddress;
+use crate::net::{EthernetDevice, ethernet::MacAddress};
 use crate::port::Port;
 use crate::println;
 use crate::spinlock::Mutex;
@@ -273,7 +273,40 @@ impl RTL8139 {
         crate::interrupts::clear_irq_mask(interrupt_line);
     }
 
-    pub fn send_packet(&mut self, packet: &[u8]) {
+    pub fn handle_interrupt(&mut self) {
+        let status = unsafe { self.ports.interrupt_status.read() };
+
+        if status == 0 {
+            return;
+        }
+
+        unsafe {
+            self.ports.interrupt_status.write(status);
+        }
+
+        if (status & InterruptMask::ROK.bits()) != 0 {
+            println!("Receiving packet");
+            if let Some(packet) = self.receive_packet() {
+                super::super::push_packet(packet);
+            }
+        }
+
+        if (status & InterruptMask::TOK.bits()) != 0 {
+            println!("Packet transmitted successfully!");
+        }
+
+        if (status & InterruptMask::RER.bits()) != 0 {
+            println!("Receive error occured!");
+        }
+    }
+
+    pub fn get_mac(&mut self) -> MacAddress {
+        MacAddress::from(self.ports.get_mac())
+    }
+}
+
+impl EthernetDevice for RTL8139 {
+    fn send_packet(&mut self, packet: &[u8]) {
         let len = packet.len();
 
         assert!(len <= TX_BUFFER_SIZE, "too much data");
@@ -293,7 +326,7 @@ impl RTL8139 {
         }
     }
 
-    pub fn receive_packet(&mut self) -> Option<Vec<u8>> {
+    fn receive_packet(&mut self) -> Option<Vec<u8>> {
         let cmd = unsafe { self.ports.command_reg.read() };
         if (cmd & 1) == 1 {
             return None;
@@ -334,36 +367,5 @@ impl RTL8139 {
         }
 
         Some(out)
-    }
-
-    pub fn handle_interrupt(&mut self) {
-        let status = unsafe { self.ports.interrupt_status.read() };
-
-        if status == 0 {
-            return;
-        }
-
-        unsafe {
-            self.ports.interrupt_status.write(status);
-        }
-
-        if (status & InterruptMask::ROK.bits()) != 0 {
-            println!("Receiving packet");
-            if let Some(packet) = self.receive_packet() {
-                super::super::push_packet(packet);
-            }
-        }
-
-        if (status & InterruptMask::TOK.bits()) != 0 {
-            println!("Packet transmitted successfully!");
-        }
-
-        if (status & InterruptMask::RER.bits()) != 0 {
-            println!("Receive error occured!");
-        }
-    }
-
-    pub fn get_mac(&mut self) -> MacAddress {
-        MacAddress::from(self.ports.get_mac())
     }
 }

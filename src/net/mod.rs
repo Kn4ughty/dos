@@ -1,9 +1,11 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use conquer_once::spin::OnceCell;
-use core::task::{Context, Poll};
+use core::{
+    net::Ipv4Addr,
+    task::{Context, Poll},
+};
 use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
     net::{ethernet::EtherType, nic::rtl8139::RTL},
@@ -17,27 +19,62 @@ mod nic;
 
 use ethernet::EthernetPacket;
 
-const IP: u32 = const { u32::from_be_bytes([192, 168, 10, 2]) };
+// const IP: u32 = const { u32::from_be_bytes([192, 168, 10, 2]) };
 
-const PACKET_QUEUE_SIZE: usize = 4;
+const PACKET_QUEUE_SIZE: usize = 16;
 static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 // static EthernetDevice: OnceCell<RTL8139> = OnceCell::uninit();
 
-pub fn test_packet() {
-    let mac = RTL.get().unwrap().lock().get_mac();
-    let arp = arp::ArpPacket::new_arp_request(mac, IP, u32::from_be_bytes([192, 168, 10, 1]));
-    let ep = EthernetPacket {
-        destination: ethernet::BROADCAST_MAC,
-        typ: EtherType::Arp,
-        source: mac,
-        data: &arp.to_bytes(),
-    };
-    let mut buf = vec![0u8; ep.total_len()];
-    ep.write_into(&mut buf.as_mut_slice());
-    without_interrupts(|| RTL.get().unwrap().lock().send_packet(&buf.as_mut_slice()))
+/// Config for a single network interface
+pub struct InterfaceConfig {
+    mac: ethernet::MacAddress,
+    ip: Ipv4Addr,
 }
+
+#[derive(Clone, Copy)]
+pub enum WhichInterface {
+    RTL8139,
+}
+
+impl WhichInterface {
+    fn with_device<F, R>(self, f: F) -> R
+    where
+        F: FnOnce(&mut dyn EthernetDevice) -> R,
+    {
+        match self {
+            WhichInterface::RTL8139 => {
+                let mut guard = nic::rtl8139::RTL.get().unwrap().lock();
+                f(&mut *guard)
+            }
+        }
+    }
+}
+
+pub struct Interface {
+    config: InterfaceConfig,
+    which: WhichInterface,
+}
+
+trait EthernetDevice {
+    fn send_packet(&mut self, packet: &[u8]);
+    fn receive_packet(&mut self) -> Option<Vec<u8>>;
+}
+
+// pub fn test_packet() {
+//     let mac = RTL.get().unwrap().lock().get_mac();
+//     let arp = arp::ArpPacket::new_arp_request(mac, IP, u32::from_be_bytes([192, 168, 10, 1]));
+//     let ep = EthernetPacket {
+//         destination: ethernet::BROADCAST_MAC,
+//         typ: EtherType::Arp,
+//         source: mac,
+//         data: &arp.to_bytes(),
+//     };
+//     let mut buf = vec![0u8; ep.total_len()];
+//     ep.write_into(buf.as_mut_slice());
+//     without_interrupts(|| RTL.get().unwrap().lock().send_packet(buf.as_mut_slice()));
+// }
 
 pub fn init() {
     PACKET_QUEUE
@@ -93,6 +130,15 @@ impl Stream for NetworkStream {
 pub async fn get_packet() {
     let mut nns = NetworkStream {};
 
+    let mac = RTL.get().unwrap().lock().get_mac();
+    let intf = Interface {
+        config: InterfaceConfig {
+            mac,
+            ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
+        },
+        which: WhichInterface::RTL8139,
+    };
+
     loop {
         if let Some(packet) = nns.next().await
             && let Ok(ep) = EthernetPacket::try_from(packet.as_slice())
@@ -101,9 +147,8 @@ pub async fn get_packet() {
             if ep.typ == EtherType::Arp
                 && let Ok(a) = arp::ArpPacket::try_from(ep.data)
             {
-                arp::handle_arp(&a);
+                arp::handle_arp(&a, &intf);
             }
-            // println!("received ep: {:?}", ep);
         }
     }
 }

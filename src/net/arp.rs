@@ -1,23 +1,61 @@
-use crate::net::ethernet::EtherType;
+use crate::net::Interface;
+use crate::net::ethernet::{EtherType, EthernetPacket};
 use crate::println;
 use crate::spinlock::Mutex;
+use alloc::vec;
+use core::net::Ipv4Addr;
 
 use super::ethernet::MacAddress;
 use core::convert::TryInto;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use x86_64::instructions::interrupts::without_interrupts;
 
 lazy_static! {
-    pub static ref ARP_TABLE: Mutex<HashMap<u32, MacAddress>> = Mutex::new(HashMap::new());
+    pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
 }
 
-pub fn handle_arp(p: &ArpPacket) {
+pub fn handle_arp(p: &ArpPacket, interface: &Interface) {
     println!("Handling arp");
-    if p.operation == 2 {
-        // reply
-        ARP_TABLE
-            .lock()
-            .insert(p.sender_protocol_address, p.sender_hardware_address);
+    match p.operation {
+        1 => {
+            // Request
+            println!("arp_requst: {:?}", p);
+            if p.target_protocol_address == interface.config.ip {
+                println!("Arp matches, sending reply");
+                let arp = ArpPacket::new_arp_reply(
+                    interface.config.mac,
+                    interface.config.ip,
+                    p.sender_hardware_address,
+                    p.sender_protocol_address,
+                );
+
+                let arp_bytes = arp.to_bytes();
+                let ep = EthernetPacket {
+                    destination: p.sender_hardware_address,
+                    source: interface.config.mac,
+                    typ: EtherType::Arp,
+                    data: &arp_bytes,
+                };
+                let mut buf = vec![0u8; ep.total_len()];
+                ep.write_into(buf.as_mut_slice());
+                println!("Arp beign sent: {:?}", ep);
+                without_interrupts(|| {
+                    interface
+                        .which
+                        .with_device(|dev| dev.send_packet(buf.as_slice()));
+                });
+            }
+        }
+        2 => {
+            // Reply
+            ARP_TABLE
+                .lock()
+                .insert(p.sender_protocol_address, p.sender_hardware_address);
+        }
+        unknown => {
+            println!("Unknown ARP operation: {unknown}");
+        }
     }
     println!("table: {:?}", ARP_TABLE.lock());
 }
@@ -52,7 +90,7 @@ pub struct ArpPacket {
     sender_hardware_address: MacAddress,
 
     /// ip address of the sender
-    sender_protocol_address: u32,
+    sender_protocol_address: Ipv4Addr,
 
     /// In a request, this field is ignored.
     /// In a reply this field is used to indicate the address of the host that originated the ARP
@@ -60,7 +98,7 @@ pub struct ArpPacket {
     target_hardware_address: MacAddress,
 
     /// ip address of intended receiver
-    target_protocol_address: u32,
+    target_protocol_address: Ipv4Addr,
 }
 
 impl TryFrom<&[u8]> for ArpPacket {
@@ -71,7 +109,6 @@ impl TryFrom<&[u8]> for ArpPacket {
         }
 
         #[expect(clippy::if_not_else, reason = "error first is clearer in this case")]
-        #[expect(clippy::useless_conversion, reason = "Clearer")]
         Ok(ArpPacket {
             hardware_type: {
                 let t = u16::from_be_bytes(v[0..=1].try_into().unwrap());
@@ -112,17 +149,21 @@ impl TryFrom<&[u8]> for ArpPacket {
             sender_hardware_address: MacAddress::from(
                 <&[u8] as TryInto<[u8; 6]>>::try_into(&v[8..=13]).unwrap(),
             ),
-            sender_protocol_address: u32::from_be_bytes(v[14..=17].try_into().unwrap()),
+            sender_protocol_address: Ipv4Addr::from_octets(v[14..=17].try_into().unwrap()),
             target_hardware_address: MacAddress::from(
                 <&[u8] as TryInto<[u8; 6]>>::try_into(&v[18..=23]).unwrap(),
             ),
-            target_protocol_address: u32::from_be_bytes(v[24..=27].try_into().unwrap()),
+            target_protocol_address: Ipv4Addr::from_octets(v[24..=27].try_into().unwrap()),
         })
     }
 }
 
 impl ArpPacket {
-    pub fn new_arp_request(sender_mac: MacAddress, sender_ip: u32, target_ip: u32) -> ArpPacket {
+    pub fn new_arp_request(
+        sender_mac: MacAddress,
+        sender_ip: Ipv4Addr,
+        target_ip: Ipv4Addr,
+    ) -> ArpPacket {
         ArpPacket {
             hardware_type: 1,
             protocol_type: EtherType::IPv4,
@@ -136,6 +177,25 @@ impl ArpPacket {
         }
     }
 
+    pub fn new_arp_reply(
+        sender_mac: MacAddress,
+        sender_ip: Ipv4Addr,
+        target_mac: MacAddress,
+        target_ip: Ipv4Addr,
+    ) -> ArpPacket {
+        ArpPacket {
+            hardware_type: 1,
+            protocol_type: EtherType::IPv4,
+            hardware_length: 6,
+            protocol_length: 4,
+            operation: 2, // reply
+            sender_hardware_address: sender_mac,
+            sender_protocol_address: sender_ip,
+            target_hardware_address: target_mac,
+            target_protocol_address: target_ip,
+        }
+    }
+
     pub fn to_bytes(&self) -> [u8; 28] {
         let mut bytes = [0u8; 28];
 
@@ -145,9 +205,9 @@ impl ArpPacket {
         bytes[5] = self.protocol_length;
         bytes[6..=7].copy_from_slice(&self.operation.to_be_bytes());
         bytes[8..=13].copy_from_slice(&self.sender_hardware_address.0);
-        bytes[14..=17].copy_from_slice(&self.sender_protocol_address.to_be_bytes());
+        bytes[14..=17].copy_from_slice(&self.sender_protocol_address.octets());
         bytes[18..=23].copy_from_slice(&self.target_hardware_address.0);
-        bytes[24..=27].copy_from_slice(&self.target_protocol_address.to_be_bytes());
+        bytes[24..=27].copy_from_slice(&self.target_protocol_address.octets());
 
         bytes
     }

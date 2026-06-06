@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use core::net::Ipv4Addr;
 
 struct IPv4Header {
     // omg noo its not actually 4 bitss, im wasting memoryy 👁️👄👁️
@@ -31,8 +32,8 @@ struct IPv4Header {
     header_checksum: u16,
 
     /// good old ip address we know and love
-    source_address: u32,
-    destination_address: u32,
+    source_address: Ipv4Addr,
+    destination_address: Ipv4Addr,
 }
 
 impl From<[u8; 20]> for IPv4Header {
@@ -49,8 +50,8 @@ impl From<[u8; 20]> for IPv4Header {
             ttl: v[8],
             protocol: v[9],
             header_checksum: u16::from_be_bytes(v[10..=11].try_into().unwrap()),
-            source_address: u32::from_be_bytes(v[12..=15].try_into().unwrap()),
-            destination_address: u32::from_be_bytes(v[16..=19].try_into().unwrap()),
+            source_address: Ipv4Addr::from_octets(v[12..=15].try_into().unwrap()),
+            destination_address: Ipv4Addr::from_octets(v[16..=19].try_into().unwrap()),
         }
     }
 }
