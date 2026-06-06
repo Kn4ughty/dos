@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
@@ -148,26 +148,37 @@ pub async fn get_packet() {
     let intf = Interface {
         config: InterfaceConfig {
             mac,
-            ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
+            ip: Ipv4Addr::from_octets([192, 168, 68, 75]),
         },
         which: WhichInterface::RTL8139,
     };
 
     loop {
-        if let Some(packet) = nns.next().await
-            && let Ok(ep) = EthernetPacket::try_from(packet.as_slice())
-        {
-            match ep.typ {
-                EtherType::Arp => {
-                    if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
-                        arp::handle_arp(&a, &intf);
-                    }
+        let Some(packet) = nns.next().await else {
+            continue;
+        };
+
+        let Ok(ep) = EthernetPacket::try_from(packet.as_slice()) else {
+            println!(
+                "ep error! {:?}",
+                EthernetPacket::try_from(packet.as_slice())
+            );
+            let t = u16::from_be_bytes(packet.as_slice()[12..14].try_into().unwrap());
+            println!("ep type! {:#0x?}", t);
+            continue;
+        };
+
+        println!("packet was ethernet");
+        match ep.typ {
+            EtherType::Arp => {
+                if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
+                    arp::handle_arp(&a, &intf);
                 }
-                EtherType::IPv4 => {
-                    if let Ok(ip_packet) = ip::IPv4Packet::try_from(ep.data) {
-                        // println!("{:?}", ip_packet);
-                        ip::handle_packet(&ip_packet, intf).await;
-                    }
+            }
+            EtherType::IPv4 => {
+                if let Ok(ip_packet) = ip::IPv4Packet::try_from(ep.data) {
+                    // println!("{:?}", ip_packet);
+                    ip::handle_packet(&ip_packet, intf).await;
                 }
             }
         }

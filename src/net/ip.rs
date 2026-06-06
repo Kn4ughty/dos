@@ -5,6 +5,7 @@ use core::net::Ipv4Addr;
 use super::{Interface, ones_complement_checksum};
 
 pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
+    println!("unfilted ip_packet_header: {:?}", packet.header);
     // TODO handle more ip's like loopback
     if packet.header.destination_address != interface.config.ip {
         return;
