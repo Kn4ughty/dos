@@ -1,6 +1,8 @@
 use core::alloc::GlobalAlloc;
 use core::{alloc::Layout, mem, ptr::NonNull};
 
+use x86_64::instructions::interrupts::without_interrupts;
+
 use super::Mutex;
 
 const BLOCK_SIZES: &[usize] = &[8, 16, 32, 64, 128, 256, 512, 1024, 2048];
@@ -53,66 +55,70 @@ impl FixedSizeBlockAllocator {
 
 unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut allocator = self.lock();
+        without_interrupts(|| {
+            let mut allocator = self.lock();
 
-        let Some(index) = layout_to_size_index(&layout) else {
-            return allocator.fallback_alloc(layout);
-        };
+            let Some(index) = layout_to_size_index(&layout) else {
+                return allocator.fallback_alloc(layout);
+            };
 
-        #[expect(clippy::single_match_else)]
-        match allocator.list_heads[index].take() {
-            Some(node) => {
-                allocator.list_heads[index] = node.next.take();
-                core::ptr::from_mut(node) as *mut u8
+            #[expect(clippy::single_match_else)]
+            match allocator.list_heads[index].take() {
+                Some(node) => {
+                    allocator.list_heads[index] = node.next.take();
+                    core::ptr::from_mut(node) as *mut u8
+                }
+                None => {
+                    let block_size = BLOCK_SIZES[index];
+                    let block_align = block_size;
+                    let layout = Layout::from_size_align(block_size, block_align).unwrap();
+                    allocator.fallback_alloc(layout)
+                }
             }
-            None => {
-                let block_size = BLOCK_SIZES[index];
-                let block_align = block_size;
-                let layout = Layout::from_size_align(block_size, block_align).unwrap();
-                allocator.fallback_alloc(layout)
-            }
-        }
+        })
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let mut allocator = self.lock();
+        without_interrupts(|| {
+            let mut allocator = self.lock();
 
-        let Some(index) = layout_to_size_index(&layout) else {
-            let ptr = NonNull::new(ptr).unwrap(); // cannot deallocate a null ptr, so this is fine
-            return unsafe {
-                allocator.fallback_allocator.deallocate(ptr, layout);
+            let Some(index) = layout_to_size_index(&layout) else {
+                let ptr = NonNull::new(ptr).unwrap(); // cannot deallocate a null ptr, so this is fine
+                return unsafe {
+                    allocator.fallback_allocator.deallocate(ptr, layout);
+                };
             };
-        };
 
-        let new_node = ListNode {
-            next: allocator.list_heads[index].take(),
-        };
+            let new_node = ListNode {
+                next: allocator.list_heads[index].take(),
+            };
 
-        assert!(
-            mem::size_of::<ListNode>() <= BLOCK_SIZES[index],
-            "A list node being larger than the block size would create overlap"
-        );
-        assert!(
-            mem::align_of::<ListNode>() <= BLOCK_SIZES[index],
-            "incorrect alignment would be bad"
-        );
+            assert!(
+                mem::size_of::<ListNode>() <= BLOCK_SIZES[index],
+                "A list node being larger than the block size would create overlap"
+            );
+            assert!(
+                mem::align_of::<ListNode>() <= BLOCK_SIZES[index],
+                "incorrect alignment would be bad"
+            );
 
-        debug_assert_eq!(
-            ptr as usize % mem::align_of::<ListNode>(),
-            0,
-            "incorrect alignment would be unsafe"
-        );
+            debug_assert_eq!(
+                ptr as usize % mem::align_of::<ListNode>(),
+                0,
+                "incorrect alignment would be unsafe"
+            );
 
-        #[expect(
-            clippy::cast_ptr_alignment,
-            reason = "safe: pointer came from Layout::from_size_align, and BLOCK_SIZES\
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "safe: pointer came from Layout::from_size_align, and BLOCK_SIZES\
             are powers of two, >= align of listnode + checked"
-        )]
-        let new_node_ptr = ptr as *mut ListNode;
-        unsafe {
-            new_node_ptr.write(new_node);
-            allocator.list_heads[index] = Some(&mut *new_node_ptr);
-        }
+            )]
+            let new_node_ptr = ptr as *mut ListNode;
+            unsafe {
+                new_node_ptr.write(new_node);
+                allocator.list_heads[index] = Some(&mut *new_node_ptr);
+            }
+        });
     }
 }
 
