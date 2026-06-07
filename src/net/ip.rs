@@ -41,32 +41,32 @@ tryfrom! {
 pub struct IPv4Header {
     // omg noo its not actually 4 bitss, im wasting memoryy 👁️👄👁️
     /// 4 bit version. For ipv4, this is always 4 (lol)
-    pub version: u8,
+    version: u8,
     /// 4 bit header length. Length of the header in 32 bit words.
     /// Minimum is 5.
-    pub ihl: u8,
+    ihl: u8,
     /// 6 bit Differentiated Services Code point
-    pub dscp: u8,
+    dscp: u8,
     /// 2 bit Explicit Congestion notification
-    pub ecn: u8,
+    ecn: u8,
     /// Total size of entire packet in bytes, including header and data
-    pub total_length: u16,
+    total_length: u16,
     /// Used for identifying the group of fragments of a single IP datagram.
-    pub identification: u16,
+    identification: u16,
     /// 3 bit flag field
-    pub flags: IPv4Flags,
+    flags: IPv4Flags,
     /// 13 bit Fragment Offset
-    pub fragment_offset: u16,
+    fragment_offset: u16,
     /// 8 bit Time to live. Specfied in seconds. In practice this is used as a hop count
     /// This is how traceroute works!
-    pub ttl: u8,
+    ttl: u8,
 
     /// 8 bit protocol. Defines the next level protocol.
     /// See <https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers>
-    pub protocol: IPProtocol,
+    protocol: IPProtocol,
 
     /// 16 bit one's complement of all the 16 bit words in the header.
-    pub header_checksum: u16,
+    header_checksum: u16,
 
     /// good old ip address we know and love
     pub source_address: Ipv4Addr,
@@ -110,6 +110,7 @@ bitflags! {
 pub enum IpError {
     PacketNotLongEnough,
     UnknownProtocol,
+    DataTooLong,
 }
 
 #[derive(Debug)]
@@ -134,15 +135,14 @@ impl<'a> TryFrom<&'a [u8]> for IPv4Packet<'a> {
     }
 }
 
-impl IPv4Packet<'_> {
+impl<'a> IPv4Packet<'a> {
     /// Includes checksum
-    #[must_use]
     pub fn from_source_dest_and_data(
         source: Ipv4Addr,
         destination: Ipv4Addr,
-        data: &[u8],
-    ) -> IPv4Packet {
-        let total_len = (20 + data.len()) as u16;
+        data: &'a [u8],
+    ) -> Result<IPv4Packet<'a>, IpError> {
+        let total_len = u16::try_from(20 + data.len()).map_err(|_| IpError::DataTooLong)?;
         let p = IPv4Packet {
             header: IPv4Header {
                 version: 4,
@@ -162,7 +162,7 @@ impl IPv4Packet<'_> {
             data,
         };
 
-        p.with_checksum()
+        Ok(p.with_checksum())
     }
     pub fn to_bytes(&self) -> alloc::vec::Vec<u8> {
         let h = &self.header;
@@ -173,7 +173,8 @@ impl IPv4Packet<'_> {
         buf[2..4].copy_from_slice(&h.total_length.to_be_bytes());
         buf[4..6].copy_from_slice(&h.identification.to_be_bytes());
         // Flags in top 3 bits, fragment offset in low 13
-        let flags_and_offset: u16 = ((h.flags.bits() as u16) << 13) | (h.fragment_offset & 0x1FFF);
+        let flags_and_offset: u16 =
+            (u16::from(h.flags.bits()) << 13) | (h.fragment_offset & 0x1FFF);
         buf[6..8].copy_from_slice(&flags_and_offset.to_be_bytes());
         buf[8] = h.ttl;
         buf[9] = h.protocol as u8;

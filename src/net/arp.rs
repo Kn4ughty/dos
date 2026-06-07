@@ -8,13 +8,12 @@ use super::ethernet::MacAddress;
 use core::convert::TryInto;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use x86_64::instructions::interrupts::without_interrupts;
 
 lazy_static! {
     pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
 }
 
-pub fn handle_arp(p: &ArpPacket, interface: &Interface) {
+pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
     println!("Handling arp");
     match p.operation {
         1 => {
@@ -47,11 +46,7 @@ pub fn handle_arp(p: &ArpPacket, interface: &Interface) {
                 data: &arp_bytes,
             };
 
-            without_interrupts(|| {
-                interface
-                    .which
-                    .with_device(|dev| dev.send_packet(&ep.into()));
-            });
+            super::send_frame(*interface, ep.into()).await;
         }
         2 => {
             // Reply

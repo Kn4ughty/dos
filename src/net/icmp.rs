@@ -1,5 +1,4 @@
 use alloc::{vec, vec::Vec};
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
     net::{
@@ -50,7 +49,7 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
 
         println!("Sending icmp response: {:?}", ipv4);
 
-        let ip_bytes = ipv4.to_bytes();
+        let ip_bytes = ipv4.expect("Packet constructed incorrectly").to_bytes();
         let ep = EthernetPacket {
             destination: dest_mac, // fixme,
             source: interface.config.mac,
@@ -124,6 +123,7 @@ pub enum ICMPError {
 }
 
 #[derive(Debug)]
+#[expect(unused)]
 pub struct EchoPacket {
     identifier: u16,
     sequence_num: u16,
@@ -223,13 +223,13 @@ tryfrom! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum RedirectSubcode {
         /// Redirect for the network (or subnet)
-        RedirectForNetwork         = 0,
+        Network         = 0,
         /// Redirect for the host
-        RedirectForHost            = 1,
+        Host            = 1,
         /// Redirect for the type of service and network
-        RedirectForTosAndNetwork   = 2,
+        TosAndNetwork   = 2,
         /// Redirect for the type of service and host
-        RedirectForTosAndHost      = 3,
+        TosAndHost      = 3,
     }, u8
 }
 

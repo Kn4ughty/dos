@@ -338,11 +338,16 @@ impl EthernetDevice for RTL8139 {
         let offset = desc * TX_BUFFER_SIZE;
 
         unsafe {
-            while {
-                !TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN)
-            } {
-                core::hint::spin_loop();
-            }
+            // while {
+            //     !TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN)
+            // } {
+            //     core::hint::spin_loop();
+            // }
+
+            assert!(
+                TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN),
+                "TX descriptor {desc} still owned by RTL."
+            );
         }
 
         self.tx_buf.buf[offset..offset + len].copy_from_slice(packet);

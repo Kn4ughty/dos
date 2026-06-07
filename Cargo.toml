@@ -20,6 +20,7 @@ test-args = [
     "--device", "rtl8139"
 ]
 run-args = [
+    "-s", # open gdb server for debugging on localhost:1234
     "-serial", "stdio",
     "-device", "rtl8139,netdev=net0",
     # "-netdev", "bridge,br=br0,id=net0,helper=/run/wrappers/bin/qemu-bridge-helper", # allows vm to act in local network

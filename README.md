@@ -4,7 +4,9 @@ A basic rust operating system, starting on the [Writing an OS in Rust](https://o
 
 # Todo
 - [x] Homemade spinlock
-- [ ] Homemade Heap allocator
-- [ ] Networking
+- [x] Homemade Heap allocator
+- [x] Networking
+    - Support for the RTL8139 network card.
+    - Supports ICMP echo
 - [ ] Real graphics 
 - [ ] Support for FAT-12 filesystem

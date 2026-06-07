@@ -1,4 +1,4 @@
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
@@ -148,7 +148,7 @@ pub async fn get_packet() {
     let intf = Interface {
         config: InterfaceConfig {
             mac,
-            ip: Ipv4Addr::from_octets([192, 168, 68, 75]),
+            ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
         },
         which: WhichInterface::RTL8139,
     };
@@ -172,12 +172,16 @@ pub async fn get_packet() {
         match ep.typ {
             EtherType::Arp => {
                 if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
-                    arp::handle_arp(&a, &intf);
+                    arp::handle_arp_incoming(&a, &intf).await;
                 }
             }
             EtherType::IPv4 => {
                 if let Ok(ip_packet) = ip::IPv4Packet::try_from(ep.data) {
-                    // println!("{:?}", ip_packet);
+                    // Snoop it. We know that this MAC owns this IP, so we can update for free
+                    arp::ARP_TABLE
+                        .lock()
+                        .insert(ip_packet.header.source_address, ep.source);
+
                     ip::handle_packet(&ip_packet, intf).await;
                 }
             }
