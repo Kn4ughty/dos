@@ -34,9 +34,11 @@
 extern crate alloc;
 
 use core::panic::PanicInfo;
+use log::error;
 
 pub mod gdt;
 pub mod interrupts;
+pub mod logging;
 pub mod mem;
 pub mod multiboot;
 pub mod net;
@@ -115,6 +117,8 @@ pub fn hlt_loop() -> ! {
 }
 
 pub fn init() {
+    logging::init().expect("logger init called once");
+
     gdt::init();
     interrupts::init_idt();
     unsafe { interrupts::PICS.lock().initialize() };
@@ -135,13 +139,6 @@ fn test_kernel_main(_boot_info: &'static BootInfo) -> ! {
     hlt_loop();
 }
 
-// #[cfg(not(test))]
-// #[panic_handler]
-// fn panic(info: &PanicInfo) -> ! {
-//     println!("{}", info);
-//     hlt_loop();
-// }
-
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -158,7 +155,7 @@ pub fn test_runner(tests: &[&dyn Testable]) {
 }
 
 pub fn test_panic_handler(info: &PanicInfo) -> ! {
-    serial_println!("[failed]\n");
-    serial_println!("{:#?}\n", info);
+    error!("[failed]\n");
+    error!("{:#?}\n", info);
     exit_qemu(QemuExitCode::Failed);
 }

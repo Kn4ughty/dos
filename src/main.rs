@@ -37,8 +37,6 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     net::init();
 
-    // net::test_packet();
-
     #[cfg(test)]
     test_main();
 
@@ -55,8 +53,8 @@ use core::panic::PanicInfo;
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    use os::println;
-    println!("{}", info);
+    use log::error;
+    error!("{}", info);
     os::hlt_loop();
 }
 
