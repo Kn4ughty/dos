@@ -61,6 +61,37 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
     trace!("table: {:?}", ARP_TABLE.lock());
 }
 
+pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddress> {
+    if let Some(ip) = ARP_TABLE.lock().get(&ip) {
+        return Some(*ip);
+    }
+    send_arp_request(ip, interface).await;
+
+    // SLEEP 5 seconds?
+
+    // try again
+    if let Some(ip) = ARP_TABLE.lock().get(&ip) {
+        return Some(*ip);
+    }
+
+    None
+}
+
+// Somehow include timeout
+async fn send_arp_request(target: Ipv4Addr, interface: &Interface) {
+    let ap = ArpPacket::new_arp_request(interface.config.mac, interface.config.ip, target);
+    let ap_bytes = ap.to_bytes();
+
+    let ep = EthernetPacket {
+        destination: super::ethernet::BROADCAST_MAC,
+        source: interface.config.mac,
+        typ: EtherType::Arp,
+        data: &ap_bytes,
+    };
+
+    super::send_frame(*interface, ep.into()).await;
+}
+
 pub enum ArpError {
     PacketNotLongEnough,
     HardwareLengthNot6,

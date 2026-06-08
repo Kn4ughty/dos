@@ -5,6 +5,7 @@ use crossbeam_queue::ArrayQueue;
 
 const MAX_TASKS: usize = 100;
 
+#[derive(Debug)]
 pub struct Executor {
     tasks: BTreeMap<TaskId, Task>,
     task_queue: Arc<ArrayQueue<TaskId>>,
@@ -40,6 +41,7 @@ impl Executor {
             let Some(task) = self.tasks.get_mut(&task_id) else {
                 continue; // Task no longer exists, skip it
             };
+            log::debug!("Executing task: {:?}", task);
 
             let waker = self
                 .waker_cache

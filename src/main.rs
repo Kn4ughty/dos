@@ -46,8 +46,8 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     use os::task::{Task, executor::Executor, keyboard};
 
     let mut executor = Executor::new();
-    executor.spawn(Task::new(keyboard::print_keypresses()));
-    executor.spawn(Task::new(net::get_packet()));
+    executor.spawn(Task::new(keyboard::print_keypresses(), "Keyboard"));
+    executor.spawn(Task::new(net::get_packet(), "network"));
     executor.run();
 }
 

@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use core::fmt::Debug;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Context, Poll};
 use core::{future::Future, pin::Pin};
@@ -8,13 +9,24 @@ pub mod keyboard;
 
 pub struct Task {
     id: TaskId,
+    name: &'static str,
     future: Pin<Box<dyn Future<Output = ()>>>,
 }
 
+impl Debug for Task {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Task")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Task {
-    pub fn new(future: impl Future<Output = ()> + 'static) -> Task {
+    pub fn new(future: impl Future<Output = ()> + 'static, name: &'static str) -> Task {
         Task {
             id: TaskId::new(),
+            name,
             future: Box::pin(future),
         }
     }
