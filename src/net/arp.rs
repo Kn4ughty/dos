@@ -1,6 +1,5 @@
 use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
-use crate::println;
 use crate::spinlock::Mutex;
 use core::net::Ipv4Addr;
 
@@ -8,17 +7,18 @@ use super::ethernet::MacAddress;
 use core::convert::TryInto;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use log::{debug, trace, warn};
 
 lazy_static! {
     pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
 }
 
 pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
-    println!("Handling arp");
+    trace!("Handling arp");
     match p.operation {
         1 => {
             // Request
-            println!("arp_requst: {:?}", p);
+            trace!("arp_requst: {:?}", p);
 
             // Ignore packets not addressed to ourselves
             if p.target_protocol_address != interface.config.ip {
@@ -30,7 +30,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
                 .lock()
                 .insert(p.sender_protocol_address, p.sender_hardware_address);
 
-            println!("Arp matches, sending reply");
+            trace!("Arp matches, sending reply");
             let arp = ArpPacket::new_arp_reply(
                 interface.config.mac,
                 interface.config.ip,
@@ -55,10 +55,10 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
                 .insert(p.sender_protocol_address, p.sender_hardware_address);
         }
         unknown => {
-            println!("Unknown ARP operation: {unknown}");
+            warn!("Unknown ARP operation: {unknown}");
         }
     }
-    println!("table: {:?}", ARP_TABLE.lock());
+    trace!("table: {:?}", ARP_TABLE.lock());
 }
 
 pub enum ArpError {
@@ -131,7 +131,7 @@ impl TryFrom<&[u8]> for ArpPacket {
             hardware_length: {
                 let len = v[4];
                 if len != 6 {
-                    println!("MAC ADDRESS IS NOT len 6");
+                    debug!("MAC ADDRESS IS NOT len 6");
                     Err(ArpError::HardwareLengthNot6)
                 } else {
                     Ok(len)
@@ -140,7 +140,7 @@ impl TryFrom<&[u8]> for ArpPacket {
             protocol_length: {
                 let prot_len = v[5];
                 if prot_len != 4 {
-                    println!("WARNING. Bad prot_length");
+                    debug!("WARNING. Bad prot_length");
                     Err(ArpError::ProtocolLenNot4)
                 } else {
                     Ok(prot_len)

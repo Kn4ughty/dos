@@ -4,6 +4,7 @@
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+#[expect(unused)]
 use log::{debug, error, info, trace, warn};
 
 extern crate alloc;
@@ -11,7 +12,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 
 use os::{
-    hlt_loop, init,
+    init,
     mem::{self, allocator},
     net, vga_println,
 };
@@ -41,8 +42,6 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     #[cfg(test)]
     test_main();
-
-    // hlt_loop();
 
     use os::task::{Task, executor::Executor, keyboard};
 

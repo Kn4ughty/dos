@@ -7,12 +7,10 @@ use core::{
 };
 use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
+use log::{debug, error, trace, warn};
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{
-    net::{ethernet::EtherType, nic::rtl8139::RTL},
-    println,
-};
+use crate::net::{ethernet::EtherType, nic::rtl8139::RTL};
 
 mod arp;
 mod ethernet;
@@ -99,14 +97,14 @@ pub fn init() {
 
 pub fn push_packet(packet: Vec<u8>) {
     let Ok(queue) = PACKET_QUEUE.try_get() else {
-        println!("Packet queue not made. Dropping packet");
+        error!("Packet queue not initialised. Dropping packet");
         return;
     };
 
     if queue.push(packet).is_ok() {
         WAKER.wake();
     } else {
-        println!("Packet queue fulL! Dropping packet");
+        warn!("Packet queue fulL! Dropping packet");
     }
 }
 
@@ -119,7 +117,7 @@ impl Stream for NetworkStream {
         self: core::pin::Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        println!("Getting packet");
+        trace!("Poll for NetworkStream called");
 
         let queue = PACKET_QUEUE
             .try_get()
@@ -159,16 +157,15 @@ pub async fn get_packet() {
         };
 
         let Ok(ep) = EthernetPacket::try_from(packet.as_slice()) else {
-            println!(
+            debug!(
                 "ep error! {:?}",
                 EthernetPacket::try_from(packet.as_slice())
             );
             let t = u16::from_be_bytes(packet.as_slice()[12..14].try_into().unwrap());
-            println!("ep type! {:#0x?}", t);
+            debug!("ep type from error {:#0x?}", t);
             continue;
         };
 
-        println!("packet was ethernet");
         match ep.typ {
             EtherType::Arp => {
                 if let Ok(a) = arp::ArpPacket::try_from(ep.data) {

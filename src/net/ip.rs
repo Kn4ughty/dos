@@ -1,16 +1,17 @@
-use crate::{println, tryfrom::tryfrom};
+use crate::tryfrom::tryfrom;
 use bitflags::bitflags;
 use core::net::Ipv4Addr;
+use log::trace;
 
 use super::{Interface, ones_complement_checksum};
 
 pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
-    println!("unfilted ip_packet_header: {:?}", packet.header);
+    trace!("unfilted ip_packet_header: {:?}", packet.header);
     // TODO handle more ip's like loopback
     if packet.header.destination_address != interface.config.ip {
         return;
     }
-    println!("Handling packet with header: {:?}", packet.header);
+    trace!("Decided to handle packet");
 
     match packet.header.protocol {
         IPProtocol::Icmp => {
@@ -19,9 +20,11 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
         }
         IPProtocol::Tcp => {
             // todo
+            trace!("Ignoring TCP packet");
         }
         IPProtocol::Udp => {
             // todo
+            trace!("Ignoring UDP packet");
         }
     }
 }

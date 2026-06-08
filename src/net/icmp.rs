@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use log::{debug, warn};
 
 use crate::{
     net::{
@@ -7,7 +8,6 @@ use crate::{
         ip::IPv4Packet,
         ones_complement_checksum,
     },
-    println,
     tryfrom::{TryFrom2argAndReverse, tryfrom},
 };
 
@@ -17,18 +17,18 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
         return;
     };
 
-    println!("handling icmp: {:?}", packet);
+    debug!("handling icmp: {:?}", packet);
     if icmpp.typ == ControlMessageType::EchoRequest(NoSubcode::NoCode) {
         let dest_mac = arp::ARP_TABLE
             .lock()
             .get(&packet.header.source_address)
             .copied();
         let Some(dest_mac) = dest_mac else {
-            println!(
-                "No ARP entry for {}, dropping",
+            warn!(
+                "No ARP entry for icmp request {}, dropping",
                 packet.header.source_address
             );
-            // todo, do an arp request
+            // TODO, do an arp request
             return;
         };
 
@@ -47,7 +47,7 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
             resp_bytes.as_slice(),
         );
 
-        println!("Sending icmp response: {:?}", ipv4);
+        debug!("Sending icmp response: {:?}", ipv4);
 
         let ip_bytes = ipv4.expect("Packet constructed incorrectly").to_bytes();
         let ep = EthernetPacket {

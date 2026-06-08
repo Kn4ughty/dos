@@ -4,12 +4,12 @@
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use conquer_once::spin::OnceCell;
+use log::{debug, error, trace};
 
 use crate::mem::{self, phys::PhysBuf};
 use crate::net::ethernet::EthernetFrame;
 use crate::net::{EthernetDevice, ethernet::MacAddress};
 use crate::port::Port;
-use crate::println;
 use crate::spinlock::Mutex;
 
 pub static RTL: OnceCell<Mutex<RTL8139>> = OnceCell::uninit();
@@ -30,7 +30,7 @@ pub fn irq_handler() {
     {
         rtl.handle_interrupt();
     } else {
-        println!("WARNING: irq_handler failed to lock RTL");
+        error!("WARNING: irq_handler failed to lock RTL");
     }
 }
 
@@ -41,8 +41,8 @@ pub fn find_rtl() {
             #[expect(clippy::collapsible_if, reason = "future proofing")]
             if let Some(header) = pci_device.get_header() {
                 if let Some(mut rtl) = RTL8139::try_new(&header) {
-                    println!("Found rtl!");
-                    println!("{:#?}", header);
+                    debug!("Found rtl!");
+                    debug!("{:#?}", header);
                     pci_device.enable_bus_mastering();
 
                     rtl.init();
@@ -238,7 +238,7 @@ impl RTL8139 {
     }
 
     pub fn init(&mut self) {
-        println!("RTL8139 init.");
+        debug!("RTL8139 init.");
         // Power on
         unsafe {
             self.ports.config1.write(0x0);
@@ -277,7 +277,7 @@ impl RTL8139 {
             self.ports.command_reg.write(0x0c);
         }
 
-        println!("RTL8139 init completed");
+        debug!("RTL8139 init completed");
     }
 
     pub fn register_interrupts(self: RTL8139, interrupt_line: u8) {
@@ -301,19 +301,19 @@ impl RTL8139 {
             }
 
             if (status & InterruptMask::ROK.bits()) != 0 {
-                println!("Receiving packet");
+                trace!("Receiving packet");
                 while let Some(packet) = self.receive_packet() {
                     super::super::push_packet(packet);
                 }
             }
 
             if (status & InterruptMask::TOK.bits()) != 0 {
-                println!("Packet transmitted successfully!");
+                trace!("Packet transmitted successfully!");
                 super::super::notify_tx_complete();
             }
 
             if (status & InterruptMask::RER.bits()) != 0 {
-                println!("Receive error occured!");
+                trace!("Receive error occured!");
             }
         }
     }
@@ -337,23 +337,16 @@ impl EthernetDevice for RTL8139 {
 
         let offset = desc * TX_BUFFER_SIZE;
 
-        unsafe {
-            // while {
-            //     !TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN)
-            // } {
-            //     core::hint::spin_loop();
-            // }
-
-            assert!(
-                TransmitStatus::from_bits_retain(tx_status.read()).contains(TransmitStatus::OWN),
-                "TX descriptor {desc} still owned by RTL."
-            );
-        }
+        assert!(
+            TransmitStatus::from_bits_retain(unsafe { tx_status.read() })
+                .contains(TransmitStatus::OWN),
+            "TX descriptor {desc} still owned by RTL."
+        );
 
         self.tx_buf.buf[offset..offset + len].copy_from_slice(packet);
         let phys = self.tx_buf.addr() + (offset as u64);
 
-        println!("send_packet: phys={:#010x}, len={}", phys, len);
+        trace!("send_packet: phys={:#010x}, len={}", phys, len);
         unsafe {
             tx_address.write(u32::try_from(phys).expect("addr ffits"));
             tx_status.write(u32::try_from(len).expect("too much data") & 0x1FFF);
@@ -373,7 +366,7 @@ impl EthernetDevice for RTL8139 {
         ));
 
         if !header.contains(ReceiveStatus::ROK) {
-            println!("WARNING: Error receiving packet! {:?}", header);
+            error!("WARNING: Error receiving packet! {:?}", header);
             // May need to still advance capr.
             // This is a future problem. We will find out when an error happens.
             // yk what, so that we MUST handle it in future ill just panic
