@@ -1,20 +1,27 @@
+use core::sync::atomic::AtomicUsize;
+
 use crate::vga_buffer::{_print_coloured, Colour};
 
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 
+const STARTUP_LEVEL: Level = Level::Debug;
+
 static LOGGER: Logger = Logger;
+
+static LOG_LEVEL: AtomicUsize = AtomicUsize::new(STARTUP_LEVEL as usize);
 
 /// # Errors
 /// Errors if called multiple times
+// If logging is slow, decrease maxmium log level
 pub fn init() -> Result<(), SetLoggerError> {
-    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Debug))
+    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Trace))
 }
 
 struct Logger;
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        metadata.level() as usize <= LOG_LEVEL.load(core::sync::atomic::Ordering::Acquire)
     }
 
     fn log(&self, record: &Record) {

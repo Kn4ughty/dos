@@ -31,9 +31,6 @@
 )]
 #![warn(clippy::missing_assert_message)]
 
-// extern crate colour_printing;
-use colour_printing;
-
 extern crate alloc;
 
 use core::panic::PanicInfo;
