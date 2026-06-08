@@ -42,9 +42,21 @@ enum Segment {
 fn colour_ident(name: &str) -> proc_macro2::TokenStream {
     match name {
         "black" => quote! { os::vga_buffer::Colour::Black },
-        "white" => quote! { os::vga_buffer::Colour::White },
-        "red" => quote! {   os::vga_buffer::Colour::Red   },
-        "blue" => quote! {  os::vga_buffer::Colour::Blue  },
+        "blue" => quote! { os::vga_buffer::Colour::Blue},
+        "green" => quote! { os::vga_buffer::Colour::Green},
+        "cyan" => quote! { os::vga_buffer::Colour::Cyan},
+        "red" => quote! { os::vga_buffer::Colour::Red},
+        "magenta" => quote! { os::vga_buffer::Colour::Magenta},
+        "brown" => quote! { os::vga_buffer::Colour::Brown},
+        "lgray" => quote! { os::vga_buffer::Colour::LightGray},
+        "dgray" => quote! { os::vga_buffer::Colour::DarkGray},
+        "lblue" => quote! { os::vga_buffer::Colour::LightBlue},
+        "lgreen" => quote! { os::vga_buffer::Colour::LightGreen},
+        "lcyan" => quote! { os::vga_buffer::Colour::LightCyan},
+        "lred" => quote! { os::vga_buffer::Colour::LightRed},
+        "pink" => quote! { os::vga_buffer::Colour::Pink},
+        "yellow" => quote! { os::vga_buffer::Colour::Yellow},
+        "white" => quote! { os::vga_buffer::Colour::White},
         other => panic!("Unknown colour tag {other}"),
     }
 }

@@ -4,6 +4,8 @@
 #![test_runner(os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+use log::{debug, error, info, trace, warn};
+
 extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
@@ -36,9 +38,6 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
     net::init();
-
-    use colour_printing::cprint;
-    cprint!("<red> red text thing!</red>");
 
     #[cfg(test)]
     test_main();
