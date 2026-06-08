@@ -12,6 +12,7 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::items_after_statements)]
+#![allow(clippy::new_without_default)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,
@@ -48,6 +49,7 @@ pub mod port;
 pub mod serial;
 pub mod spinlock;
 pub mod task;
+pub mod time;
 pub mod tryfrom;
 pub mod vga_buffer;
 pub mod volatile;
@@ -60,11 +62,11 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     () => {
-        // $crate::vga_print!("\n");
+        $crate::vga_print!("\n");
         $crate::serial_print!("\n")
     };
     ($($arg:tt)*) => {{
-        // $crate::vga_print!("{}\n", format_args!($($arg)*));
+        $crate::vga_print!("{}\n", format_args!($($arg)*));
         $crate::serial_print!("{}\n", format_args!($($arg)*));
     }};
 }

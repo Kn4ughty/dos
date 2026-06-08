@@ -14,7 +14,7 @@ use bootloader::{BootInfo, entry_point};
 use os::{
     init,
     mem::{self, allocator},
-    net, vga_println,
+    net, println, vga_println,
 };
 
 #[cfg(feature = "bootimage")]
@@ -39,6 +39,9 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
 
     net::init();
+
+    let mut cmos = os::time::rtc::Cmos::new();
+    println!("{}", cmos.get_datetime());
 
     #[cfg(test)]
     test_main();
