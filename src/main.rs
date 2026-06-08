@@ -37,6 +37,9 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     net::init();
 
+    use colour_printing::cprint;
+    cprint!("<red> red text thing!</red>");
+
     #[cfg(test)]
     test_main();
 

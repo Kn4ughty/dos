@@ -8,6 +8,10 @@ name = "os"
 test = true
 bench = false
 
+[workspaces]
+resolver = "3"
+members = ["colour_printing"]
+
 [features]
 default = ["bootimage"]
 bootimage = []
@@ -45,6 +49,7 @@ test-timeout = 300 #seconds
 # harness = false
 
 [dependencies]
+colour_printing = {path = "colour_printing" }
 bootloader = { version = "0.9", features = ["map_physical_memory"] }
 x86_64 = "0.15.4"
 pc-keyboard = "0.8.0"

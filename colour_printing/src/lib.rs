@@ -1,9 +1,35 @@
 extern crate proc_macro;
+use syn::{Expr, LitStr, parse_macro_input, token::Group};
 
 use core::iter::Iterator;
 
 use proc_macro::TokenStream;
 use quote::quote;
+
+#[proc_macro]
+pub fn cprint(input: TokenStream) -> TokenStream {
+    let lit = parse_macro_input!(input as LitStr);
+    let s = lit.value();
+    println!("{s:?}");
+
+    let segments = parse_segments(s.as_str());
+    println!("{segments:?}");
+
+    let calls = segments.iter().map(|segment| {
+        match segment {
+            Segment::Plain(s) => {
+                quote! { os::vga_buffer::_print(format_args!("{}", #s) ) }
+            },
+            Segment::Coloured(c, s) => {
+                let colour_expr = colour_ident(c.as_str());
+                quote! { os::vga_buffer::_print_coloured(format_args!("{}", #s), #colour_expr, os::vga_buffer::Colour::Black ) }
+            }
+        }
+    });
+
+    // "\"\"".parse().unwrap()
+    quote! { { #(#calls)* } }.into()
+}
 
 #[derive(Debug, PartialEq, Eq)]
 enum Segment {
@@ -15,16 +41,16 @@ enum Segment {
 // Fully qualified paths _not_ used here so that it can later be integrated with serial colours
 fn colour_ident(name: &str) -> proc_macro2::TokenStream {
     match name {
-        "black" => quote! { Colour::Black },
-        "white" => quote! { Colour::White },
-        "red" => quote! { Colour::Red },
-        "blue" => quote! { Colour::Blue },
-        other => panic!("Unknown colour tag <{other}"),
+        "black" => quote! { os::vga_buffer::Colour::Black },
+        "white" => quote! { os::vga_buffer::Colour::White },
+        "red" => quote! {   os::vga_buffer::Colour::Red   },
+        "blue" => quote! {  os::vga_buffer::Colour::Blue  },
+        other => panic!("Unknown colour tag {other}"),
     }
 }
 
 #[must_use]
-fn parse_segment(s: &str) -> Vec<Segment> {
+fn parse_segments(s: &str) -> Vec<Segment> {
     // To support nesting this will need to be recursive
 
     let mut out = Vec::new();
@@ -41,8 +67,8 @@ fn parse_segment(s: &str) -> Vec<Segment> {
                 continue;
             } else if tag_start != 0 {
                 // Push as plain string
-                out.push(Segment::Plain(remaining[..tag_start + 1].to_string()));
-                remaining = &remaining[tag_start + 1..];
+                out.push(Segment::Plain(remaining[..tag_start].to_string()));
+                remaining = &remaining[tag_start..];
             }
 
             let tag_end = remaining.find('>').expect("unclosed tag");
@@ -79,13 +105,21 @@ fn parse_segment(s: &str) -> Vec<Segment> {
 #[test]
 fn test_parse_segment() {
     assert_eq!(
-        parse_segment("plain"),
+        parse_segments("plain"),
         vec![Segment::Plain("plain".to_string())]
     );
 
-    let out = parse_segment("<red>Red text</red>");
     assert_eq!(
-        out,
+        parse_segments("<red>Red text</red>"),
         vec![Segment::Coloured("red".to_string(), "Red text".to_string())]
+    );
+
+    assert_eq!(
+        parse_segments("<blue> BLUE </blue> regular <red>Red text</red>"),
+        vec![
+            Segment::Coloured("blue".to_string(), " BLUE ".to_string()),
+            Segment::Plain(" regular ".to_string()),
+            Segment::Coloured("red".to_string(), "Red text".to_string())
+        ]
     );
 }
