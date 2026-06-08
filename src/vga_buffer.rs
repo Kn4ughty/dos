@@ -113,7 +113,7 @@ impl Writer {
         writer
     }
 
-    fn write_byte(&mut self, byte: u8) {
+    fn write_byte_with_colour(&mut self, byte: u8, colour: ColorCode) {
         if byte == b'\n' {
             self.new_line();
             return;
@@ -124,12 +124,17 @@ impl Writer {
 
         self.buffer.chars[BUFFER_HEIGHT - 1][self.column_position].write(ScreenChar {
             ascii_character: byte,
-            color_code: self.color_code,
+            color_code: colour,
         });
         self.column_position += 1;
     }
 
+    fn write_byte(&mut self, byte: u8) {
+        self.write_byte_with_colour(byte, self.color_code);
+    }
+
     fn new_line(&mut self) {
+        // Move all text up one row
         for row in 1..BUFFER_HEIGHT {
             for col in 0..BUFFER_WIDTH {
                 let character = self.buffer.chars[row][col].read();
@@ -168,12 +173,9 @@ impl Writer {
             if matches!(byte, b' '..=b'~' | b'\n') {
                 self.write_byte(byte);
             } else {
-                // Scary recursion
-                let r = write!(self, "0x{byte:02x}");
-                if let Err(e) = r {
-                    use crate::serial_println;
-                    serial_println!("WRITE UNKNOWN CHARACTER ERROR: {:?}", e);
-                }
+                // The only way this can fail is if the formatting is wrong, since
+                // the Write implementation does not return an error
+                write!(self, "0x{byte:02x}").expect("Formatting ok");
             }
         }
         self.cursor
@@ -182,6 +184,7 @@ impl Writer {
 }
 
 use core::fmt::Write;
+
 impl Write for Writer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.write_string(s);
@@ -189,7 +192,6 @@ impl Write for Writer {
     }
 }
 
-// cannot use a std::LazyLock as no std. So using lazy_static
 lazy_static! {
     pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer::new());
 }
@@ -214,6 +216,21 @@ pub fn _print(args: core::fmt::Arguments) {
     });
 }
 
+#[doc(hidden)]
+pub fn _print_coloured(args: core::fmt::Arguments, foreground: Colour, background: Colour) {
+    use core::fmt::Write;
+    // Disable interrupts to prevent deadlocking
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut writer = WRITER.lock();
+
+        let old = writer.color_code;
+
+        writer.color_code = ColorCode::new(foreground, background);
+        writer.write_fmt(args).unwrap();
+        writer.color_code = old;
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +252,11 @@ mod tests {
         vga_println!(
             "test_println_longgg output very long line of text that is sure to take up more than one line on the display, and hence test if text wrapping does not panic"
         );
+    }
+
+    #[test_case]
+    fn test_handles_unicode_without_crashing() {
+        vga_println!("🐧");
     }
 
     #[test_case]

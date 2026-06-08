@@ -9,7 +9,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 
 use os::{
-    init,
+    hlt_loop, init,
     mem::{self, allocator},
     net, vga_println,
 };
@@ -39,6 +39,8 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
 
     #[cfg(test)]
     test_main();
+
+    // hlt_loop();
 
     use os::task::{Task, executor::Executor, keyboard};
 
