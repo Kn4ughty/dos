@@ -1,4 +1,4 @@
-use crate::spinlock::Mutex;
+use crate::{spinlock::Mutex, vga_println};
 /// See <https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port> for more info
 use lazy_static::lazy_static;
 
@@ -120,8 +120,11 @@ impl Write for Writer {
 }
 
 lazy_static! {
-    pub static ref SERIAL1: Mutex<Writer> =
-        Mutex::new(unsafe { Writer::new(0x3F8).expect("can create serial writer") });
+    pub static ref SERIAL1: Mutex<Option<Writer>> = Mutex::new(unsafe {
+        Writer::new(0x3F8)
+            .map_err(|e| vga_println!("serial error: {e:?}"))
+            .ok()
+    });
 }
 
 #[macro_export]
@@ -140,6 +143,8 @@ pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
     // Disable interrupts to prevent deadlocking
     x86_64::instructions::interrupts::without_interrupts(|| {
-        SERIAL1.lock().write_fmt(args).unwrap();
+        if let Some(s) = SERIAL1.lock().as_mut() {
+            s.write_fmt(args).unwrap();
+        }
     });
 }
