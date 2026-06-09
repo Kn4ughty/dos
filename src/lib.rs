@@ -34,9 +34,12 @@
 
 extern crate alloc;
 
+use bootloader::BootInfo;
 use core::panic::PanicInfo;
+
 use log::error;
 
+pub mod acpi;
 pub mod gdt;
 pub mod interrupts;
 pub mod logging;
@@ -120,15 +123,31 @@ pub fn hlt_loop() -> ! {
 
 pub fn init() {
     logging::init().expect("logger init called once");
-
     gdt::init();
     interrupts::init_idt();
     unsafe { interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
 }
 
+pub fn memory_init(bootinfo: &'static BootInfo) {
+    use x86_64::VirtAddr;
+
+    let phys_mem_offset = VirtAddr::new(bootinfo.physical_memory_offset);
+    let mut mapper = unsafe { mem::init(phys_mem_offset) };
+
+    let mut frame_allocator = unsafe { mem::BootInfoFrameAllocator::init(&bootinfo.memory_map) };
+
+    mem::allocator::init_heap(&mut mapper, &mut frame_allocator)
+        .expect("Heap initialzation failed");
+}
+
+pub fn post_memory_init() {
+    net::init();
+    acpi::init();
+}
+
 #[cfg(test)]
-use bootloader::{BootInfo, entry_point};
+use bootloader::entry_point;
 
 #[cfg(test)]
 entry_point!(test_kernel_main);

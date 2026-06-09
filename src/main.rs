@@ -11,11 +11,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use os::{
-    init,
-    mem::{self, allocator},
-    net, println, vga_println,
-};
+use os::{net, println, vga_println};
 
 #[cfg(feature = "bootimage")]
 entry_point!(bootimage_start);
@@ -27,18 +23,9 @@ fn bootimage_start(boot_info: &'static BootInfo) -> ! {
 
 fn k_main(bootinfo: &'static BootInfo) -> ! {
     vga_println!("Hello from rustland!");
-    init();
-
-    use x86_64::VirtAddr;
-
-    let phys_mem_offset = VirtAddr::new(bootinfo.physical_memory_offset);
-    let mut mapper = unsafe { mem::init(phys_mem_offset) };
-
-    let mut frame_allocator = unsafe { mem::BootInfoFrameAllocator::init(&bootinfo.memory_map) };
-
-    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialzation failed");
-
-    net::init();
+    os::init();
+    os::memory_init(bootinfo);
+    os::post_memory_init();
 
     let mut cmos = os::time::rtc::Cmos::new();
     println!("{}", cmos.get_datetime());

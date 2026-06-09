@@ -40,6 +40,24 @@ impl Cmos {
         }
     }
 
+    fn get_year(&mut self) -> u16 {
+        let year = self.read_reg(0x09);
+
+        let century_enabled = crate::acpi::FADT
+            .get()
+            .expect("acpi must initialised")
+            .century
+            != 0;
+
+        let century = if century_enabled {
+            self.read_reg(0x32)
+        } else {
+            20
+        };
+
+        u16::from(century) * 100 + u16::from(year)
+    }
+
     pub fn get_datetime(&mut self) -> DateTime {
         DateTime {
             seconds: self.read_reg(0x00),
@@ -48,8 +66,7 @@ impl Cmos {
             weekday: Weekday::try_from(self.read_reg(0x06)).expect("faulty CMOS"),
             day_of_month: self.read_reg(0x07),
             month: Month::try_from(self.read_reg(0x08)).expect("faulty CMOS"),
-            year: self.read_reg(0x09),
-            century: self.read_reg(0x32),
+            year: self.get_year(),
         }
     }
 }
@@ -62,9 +79,9 @@ pub struct DateTime {
     weekday: Weekday,
     day_of_month: u8,
     month: Month,
-    /// 0 - 99 :|
-    year: u8,
-    century: u8,
+    /// contains best guess.
+    /// Also screw people living 63,510 years in the future
+    year: u16,
 }
 
 impl Display for DateTime {
@@ -72,14 +89,13 @@ impl Display for DateTime {
         // Example
         // 21:40:14 Monday, 8 Jun, 26
         f.write_fmt(format_args!(
-            "{}:{:02}:{:02} {:?}, {} {:?}, {}{}",
+            "{}:{:02}:{:02} {:?}, {} {:?}, {}",
             self.hours,
             self.minutes,
             self.seconds,
             self.weekday,
             self.day_of_month,
             self.month,
-            self.century,
             self.year
         ))
     }
