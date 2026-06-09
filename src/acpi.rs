@@ -2,7 +2,7 @@ use core::ptr::NonNull;
 
 use acpi::{AcpiTables, rsdp, sdt::fadt::Fadt};
 use conquer_once::spin::OnceCell;
-use x86_64::{PhysAddr, VirtAddr};
+use x86_64::PhysAddr;
 
 pub static FADT: OnceCell<Fadt> = OnceCell::uninit();
 
@@ -19,12 +19,11 @@ pub fn init() {
         return;
     };
 
-    FADT.try_init_once(|| {
-        *table
-            .find_table::<acpi::sdt::fadt::Fadt>()
-            .expect("FADT must exist (because i say so)")
-    })
-    .expect("acpi::init() must be called only once");
+    let fadt = *table
+        .find_table::<acpi::sdt::fadt::Fadt>()
+        .expect("FADT must exist (because i say so)");
+    FADT.try_init_once(|| fadt)
+        .expect("acpi::init() must be called only once");
 }
 
 #[derive(Debug, Clone, Copy)]

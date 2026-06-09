@@ -131,17 +131,23 @@ pub fn init() {
 
 pub fn memory_init(bootinfo: &'static BootInfo) {
     use x86_64::VirtAddr;
+    log::debug!("initialising memory");
 
     let phys_mem_offset = VirtAddr::new(bootinfo.physical_memory_offset);
+    log::trace!("Phys mem offset: {:?}", phys_mem_offset);
+
     let mut mapper = unsafe { mem::init(phys_mem_offset) };
 
     let mut frame_allocator = unsafe { mem::BootInfoFrameAllocator::init(&bootinfo.memory_map) };
 
     mem::allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("Heap initialzation failed");
+
+    log::debug!("Memory init done");
 }
 
 pub fn post_memory_init() {
+    log::debug!("Post memory init");
     net::init();
     acpi::init();
 }

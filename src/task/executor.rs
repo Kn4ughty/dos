@@ -41,7 +41,7 @@ impl Executor {
             let Some(task) = self.tasks.get_mut(&task_id) else {
                 continue; // Task no longer exists, skip it
             };
-            log::debug!("Executing task: {:?}", task);
+            log::trace!("Executing task: {:?}", task);
 
             let waker = self
                 .waker_cache

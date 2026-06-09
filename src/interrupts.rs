@@ -132,6 +132,7 @@ pub fn clear_irq_mask(irq: u8) {
 }
 
 pub fn init_idt() {
+    log::debug!("Initialising IDT");
     IDT.load();
 }
 

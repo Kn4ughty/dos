@@ -61,6 +61,7 @@ impl ChainedPics {
     /// # Safety
     /// Must only be called once
     pub unsafe fn initialize(&mut self) {
+        log::debug!("initialising PIC");
         unsafe {
             let mut wait_port: Port<u8> = Port::new(0x80); // unused port
             let mut wait = || wait_port.write(0);

@@ -1,10 +1,12 @@
+/// Programmable interval timer
+// https://www.scs.stanford.edu/10wi-cs140/pintos/specs/8254.pdf
 use crate::port::{Port, PortReadOnly};
 
-/// Programmable Interval Timer
-/// See <https://wiki.osdev.org/Programmable_Interval_Timer> for more
-pub struct Pit {
-    channel0: Port<u8>,
-    channel1: Port<u8>,
-    channel2: Port<u8>,
-    command: PortReadOnly<u8>,
+const PIT_BASE_FREQUENCY: f64 = 1_193_182.0; // hz 
+
+const CH0_PORT: u16 = 0x40;
+const CMD_PORT: u16 = 0x43;
+
+pub fn set_interval() {
+    todo!()
 }
