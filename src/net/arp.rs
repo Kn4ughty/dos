@@ -91,8 +91,9 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
     trace!("table: {:?}", ARP_TABLE.lock());
 }
 
+#[must_use]
 pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddress> {
-    log::info!("finding arp target: {:?}", ip);
+    log::debug!("finding arp target: {:?}", ip);
     if let Some(ip) = ARP_TABLE.lock().get(&ip) {
         return Some(*ip);
     }

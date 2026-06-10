@@ -2,12 +2,7 @@ use alloc::{vec, vec::Vec};
 use log::debug;
 
 use crate::{
-    net::{
-        Interface, arp,
-        ethernet::{self, EthernetPacket},
-        ip::IPv4Packet,
-        ones_complement_checksum,
-    },
+    net::{Interface, ip::IPv4Packet, ones_complement_checksum},
     tryfrom::{TryFrom2argAndReverse, tryfrom},
 };
 
@@ -19,21 +14,6 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
 
     debug!("handling icmp: {:?}", packet);
     if icmpp.typ == ControlMessageType::EchoRequest(NoSubcode::NoCode) {
-        let mut dest_mac = arp::ARP_TABLE
-            .lock()
-            .get(&packet.header.source_address)
-            .copied();
-
-        if dest_mac.is_none() {
-            log::debug!(
-                "No ARP entry for icmp request {}, attempting to do a lookup",
-                packet.header.source_address
-            );
-            dest_mac = super::arp::find_target(packet.header.source_address, &interface).await;
-        }
-
-        let Some(dest_mac) = dest_mac else { return };
-
         let mut response = ICMPPacket {
             typ: ControlMessageType::EchoReply(NoSubcode::NoCode),
             checksum: 0,
@@ -47,19 +27,11 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
             interface.config.ip,
             packet.header.source_address,
             resp_bytes.as_slice(),
-        );
+        )
+        .expect("Packet constructed incorrectly");
 
         debug!("Sending icmp response: {:?}", ipv4);
-
-        let ip_bytes = ipv4.expect("Packet constructed incorrectly").to_bytes();
-        let ep = EthernetPacket {
-            destination: dest_mac,
-            source: interface.config.mac,
-            typ: ethernet::EtherType::IPv4,
-            data: ip_bytes.as_slice(),
-        };
-
-        super::send_frame(interface, ep.into()).await;
+        super::ip::send_ipv4_packet(ipv4, interface).await;
     }
 }
 

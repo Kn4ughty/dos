@@ -1,3 +1,4 @@
+use super::{arp, ethernet};
 use crate::tryfrom::tryfrom;
 use bitflags::bitflags;
 use core::net::Ipv4Addr;
@@ -27,6 +28,27 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
             trace!("Ignoring UDP packet");
         }
     }
+}
+
+pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: Interface) {
+    let Some(dest_mac) = arp::find_target(packet.header.destination_address, &interface).await
+    else {
+        log::error!(
+            "Unable to send ip packet {:?} \n No mac address found. Dropping",
+            packet.header
+        );
+
+        return;
+    };
+
+    let bytes = packet.to_bytes();
+    let ep = ethernet::EthernetPacket {
+        destination: dest_mac,
+        source: interface.config.mac,
+        typ: ethernet::EtherType::IPv4,
+        data: bytes.as_slice(),
+    };
+    super::send_frame(interface, ep.into()).await;
 }
 
 // see https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
