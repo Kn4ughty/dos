@@ -1,24 +1,57 @@
 use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
 use crate::spinlock::Mutex;
-use core::net::Ipv4Addr;
-use core::time::Duration;
-
-use super::ethernet::MacAddress;
 use core::convert::TryInto;
+use core::net::Ipv4Addr;
+use core::pin::{Pin, pin};
+use core::task::{self, Poll, Waker};
+use core::time::Duration;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use log::{debug, trace, warn};
+
+use futures_util::future::{Either, select};
+
+use super::ethernet::MacAddress;
 
 lazy_static! {
     pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
 }
 
+lazy_static! {
+    static ref ARP_WAITERS: Mutex<HashMap<Ipv4Addr, Waker>> = Mutex::new(HashMap::new());
+}
+
+fn update_table(ip: Ipv4Addr, mac: MacAddress) {
+    ARP_TABLE.lock().insert(ip, mac);
+
+    if let Some(waker) = ARP_WAITERS.lock().remove(&ip) {
+        waker.wake();
+    }
+}
+
+pub struct ArpNotifyFuture {
+    ip: Ipv4Addr,
+}
+
+impl Future for ArpNotifyFuture {
+    type Output = MacAddress;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        if let Some(mac) = ARP_TABLE.lock().get(&self.ip) {
+            return Poll::Ready(*mac);
+        }
+
+        ARP_WAITERS.lock().insert(self.ip, cx.waker().clone());
+        Poll::Pending
+    }
+}
+
 pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
-    trace!("Handling arp");
+    trace!("Handling ARP");
     match p.operation {
         1 => {
-            // Request
+            // received a request
             trace!("arp_requst: {:?}", p);
 
             // Ignore packets not addressed to ourselves
@@ -27,9 +60,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
             }
 
             // Learn sender's mac while we can
-            ARP_TABLE
-                .lock()
-                .insert(p.sender_protocol_address, p.sender_hardware_address);
+            update_table(p.sender_protocol_address, p.sender_hardware_address);
 
             trace!("Arp matches, sending reply");
             let arp = ArpPacket::new_arp_reply(
@@ -50,10 +81,8 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
             super::send_frame(*interface, ep.into()).await;
         }
         2 => {
-            // Reply
-            ARP_TABLE
-                .lock()
-                .insert(p.sender_protocol_address, p.sender_hardware_address);
+            // received a reply
+            update_table(p.sender_protocol_address, p.sender_hardware_address);
         }
         unknown => {
             warn!("Unknown ARP operation: {unknown}");
@@ -70,22 +99,16 @@ pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddre
 
     send_arp_request(ip, interface).await;
 
-    // Now i need some way to wait and check if i get a response, in a non blocking way.
-    // A 1 second timeout.
-    // i.e, how to do a non blocking sleep.
-    // Going further, can that sleep be interrupted on after an arp packet has come in?
-    // So that this method can check for updates and finish quicker
+    let notify = pin!(ArpNotifyFuture { ip });
+    let timeout = pin!(crate::task::sleep::sleep_duration(Duration::from_secs(1)));
 
-    log::info!("Sleeping 1 second");
-    crate::task::sleep::sleep_duration(Duration::from_secs(1)).await;
-    log::info!("Sleep ened");
-
-    // for now just try again
-    if let Some(ip) = ARP_TABLE.lock().get(&ip) {
-        return Some(*ip);
+    match select(notify, timeout).await {
+        Either::Left((mac, _)) => Some(mac),
+        Either::Right(_) => {
+            log::warn!("ARP Unable to find mac address for {:?}", ip);
+            None
+        }
     }
-
-    None
 }
 
 // Somehow include timeout
