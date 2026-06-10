@@ -26,7 +26,7 @@ impl log::Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            if record.metadata().level() <= Level::Debug {
+            if record.metadata().level() <= Level::Info {
                 _print_coloured(
                     format_args!("{}", record.level()),
                     level_to_colour(record.level()),

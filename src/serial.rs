@@ -53,7 +53,7 @@ impl Writer {
     fn init_serial(&mut self) -> Result<(), SerialError> {
         Self::write_port(&mut self.interrupt, 0x00); // Disable all interrupts
         Self::write_port(&mut self.line_control, 0x80); // Enable DLAB (set baud rate divisor)
-        Self::write_port(&mut self.read_write, 0x03); // Set divisor to 3 (lo byte) 38400 baud
+        Self::write_port(&mut self.read_write, 0x01); // Set baud to 115200
         Self::write_port(&mut self.interrupt, 0x00); //                  (hi byte)
         Self::write_port(&mut self.line_control, 0x03); // 8 bits, no parity, one stop bit
         Self::write_port(&mut self.fifo_control, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
@@ -92,10 +92,6 @@ impl Writer {
 
     #[inline]
     pub fn write_char(&mut self, a: char) {
-        while !self.is_transmit_empty() {
-            core::hint::spin_loop();
-        }
-
         // Allows outputting unicode
         let mut char_buf: [u8; 4] = [0; 4];
         a.encode_utf8(&mut char_buf);
@@ -105,8 +101,20 @@ impl Writer {
     }
 
     pub fn write_string(&mut self, s: &str) {
-        for c in s.chars() {
-            self.write_char(c);
+        // With FIFO, there is a built in queue of 16 bytes.
+        // So we can buffer 16 bytes at a time
+        let bytes = s.as_bytes();
+
+        let mut i = 0;
+        while i < bytes.len() {
+            while !self.is_transmit_empty() {
+                core::hint::spin_loop();
+            }
+
+            for b in bytes[i..].iter().take(16) {
+                Self::write_port(&mut self.read_write, *b);
+                i += 1;
+            }
         }
     }
 }
