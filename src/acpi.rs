@@ -1,29 +1,92 @@
-use core::ptr::NonNull;
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
-use acpi::{AcpiTables, rsdp, sdt::fadt::Fadt};
+use acpi::{AcpiTables, Handler, aml::Interpreter, rsdp, sdt::fadt::Fadt};
 use conquer_once::spin::OnceCell;
 use x86_64::PhysAddr;
+
+use crate::spinlock::Mutex;
+
+use crate::time;
+
+static INTERPRETER: OnceCell<Mutex<Interpreter<MyHandler>>> = OnceCell::uninit();
 
 pub static FADT: OnceCell<Fadt> = OnceCell::uninit();
 
 pub fn init() {
-    let Ok(rsdp) = (unsafe { rsdp::Rsdp::search_for_on_bios(MyHandler) }) else {
+    let handler = MyHandler;
+
+    // root system descriptor pointer
+    let Ok(rsdp) = (unsafe { rsdp::Rsdp::search_for_on_bios(handler) }) else {
         log::error!("failed to find bios acpi");
         return;
     };
 
     let Ok(table) =
-        (unsafe { AcpiTables::from_rsdt(MyHandler, rsdp.revision(), rsdp.rsdt_address as usize) })
+        (unsafe { AcpiTables::from_rsdt(handler, rsdp.revision(), rsdp.rsdt_address as usize) })
     else {
         log::error!("Failed to get AcpiTables");
         return;
     };
 
-    let fadt = *table
-        .find_table::<acpi::sdt::fadt::Fadt>()
-        .expect("FADT must exist (because i say so)");
-    FADT.try_init_once(|| fadt)
+    // fixed ACPI desciprion table
+    let fadt_mapping = table.find_table::<acpi::sdt::fadt::Fadt>().unwrap();
+    let fadt = fadt_mapping.get();
+
+    FADT.try_init_once(|| *fadt)
         .expect("acpi::init() must be called only once");
+
+    // The FADT contains the DSDT
+
+    // The DSDT (Differentiated System Description Table) is an executable program written in
+    // bytecode in a language called AML.
+    // Then this program describes all the system stuff, thermal zones, power button, connected
+    // devices etc.
+
+    let dsdt = table.dsdt().expect("DSDT must exist");
+
+    let revision = dsdt.revision;
+
+    let header_size = core::mem::size_of::<acpi::sdt::SdtHeader>();
+    let aml_len = dsdt.length as usize - header_size;
+
+    let dsdt_region =
+        unsafe { handler.map_physical_region::<u8>(dsdt.phys_address + header_size, aml_len) };
+
+    // raw AML starts after the 36-byte SDT header
+    let aml_bytes =
+        unsafe { core::slice::from_raw_parts(dsdt_region.virtual_start.as_ptr(), aml_len) };
+
+    let fixed_registers = acpi::registers::FixedRegisters::new(&fadt_mapping.get(), handler);
+    let facs_region = unsafe {
+        handler.map_physical_region(
+            fadt_mapping.facs_address().unwrap(),
+            core::mem::size_of::<acpi::sdt::facs::Facs>(),
+        )
+    };
+
+    #[expect(clippy::arc_with_non_send_sync, reason = "The library is stupid")]
+    let interp = acpi::aml::Interpreter::new(
+        MyHandler,
+        revision,
+        alloc::sync::Arc::new(fixed_registers.unwrap()),
+        Some(facs_region),
+    );
+
+    interp.load_table(aml_bytes).expect("failed to load DSDT");
+
+    INTERPRETER
+        .try_init_once(|| Mutex::new(interp))
+        .expect("Init called once");
+}
+
+pub fn read_thermal_zones() {
+    let _interp = INTERPRETER.get().expect("ACPI init called").lock();
+
+    todo!();
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -144,17 +207,104 @@ impl acpi::Handler for MyHandler {
     }
 
     fn create_mutex(&self) -> acpi::Handle {
-        unimplemented!()
+        let mut table = ACPI_MUTEXES.lock();
+        let idx = table
+            .iter()
+            .position(|m| !m.in_use)
+            .expect("exhausted ACPI mutex lots");
+        table[idx].in_use = true;
+        table[idx].count = 0;
+        table[idx].locked.store(false, Ordering::Relaxed);
+        // Definitely not having 4 billion mutexes so this is fine
+        acpi::Handle(u32::try_from(idx).unwrap())
     }
 
-    fn acquire(&self, _mutex: acpi::Handle, _timeout: u16) -> Result<(), acpi::aml::AmlError> {
-        unimplemented!()
+    // Acquire the mutex referred to by the given handle. `timeout` is a millisecond timeout value
+    // with the following meaning:
+    //    - `0` - try to acquire the mutex once, in a non-blocking manner. If the mutex cannot be
+    //      acquired immediately, return `Err(AmlError::MutexAcquireTimeout)`
+    //    - `1-0xfffe` - try to acquire the mutex for at least `timeout` milliseconds.
+    //    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAcquireTimeout`.
+    fn acquire(&self, mutex: acpi::Handle, timeout: u16) -> Result<(), acpi::aml::AmlError> {
+        let idx = mutex.0 as usize;
+
+        let mutex = &mut ACPI_MUTEXES.lock()[idx];
+
+        if mutex.count > 0 {
+            // Mutex is reentrant so just increment the value
+
+            mutex.count += 1;
+            return Ok(());
+        }
+
+        match timeout {
+            0xffff => {
+                log::error!("Indefinite acquire loop0 in acpi");
+                loop {
+                    core::hint::spin_loop();
+                }
+            }
+            0 => {
+                // try aquire once
+                mutex
+                    .locked
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .map_err(|_| acpi::aml::AmlError::MutexAcquireTimeout)?;
+
+                Ok(())
+            }
+            _ => {
+                let start = time::Instant::now();
+
+                while mutex
+                    .locked
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                    && start.elapsed() < Duration::from_millis(u64::from(timeout))
+                {
+                    core::hint::spin_loop();
+                }
+
+                mutex.count = 1;
+                Ok(())
+            }
+        }
     }
 
-    fn release(&self, _mutex: acpi::Handle) {
-        unimplemented!()
+    fn release(&self, mutex: acpi::Handle) {
+        let idx = mutex.0 as usize;
+        let mut table = ACPI_MUTEXES.lock();
+        let mutex = &mut table[idx];
+
+        if mutex.count > 0 {
+            mutex.count -= 1;
+            if mutex.count == 0 {
+                mutex.locked.store(false, Ordering::Release);
+            }
+        }
     }
 }
+
+struct AcpiMutex {
+    in_use: bool,
+    locked: AtomicBool,
+    /// ACPI mutexes are reentrant. That is, a thread may acquire the same mutex more than once
+    /// Since everything happens on one thread, it is fine like this.
+    count: u32,
+}
+
+const fn unused_mutex() -> AcpiMutex {
+    AcpiMutex {
+        in_use: false,
+        locked: AtomicBool::new(false),
+        count: 0,
+    }
+}
+
+const MAX_ACPI_MUTEXES: usize = 32;
+
+static ACPI_MUTEXES: Mutex<[AcpiMutex; MAX_ACPI_MUTEXES]> =
+    Mutex::new([const { unused_mutex() }; MAX_ACPI_MUTEXES]);
 
 fn read_addr<T>(addr: usize) -> T
 where

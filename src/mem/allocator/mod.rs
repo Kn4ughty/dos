@@ -12,7 +12,7 @@ use fixed_size_block::FixedSizeBlockAllocator;
 use crate::spinlock::Mutex;
 
 pub const HEAP_START: usize = 0x_4444_4444_0000; // Easily recognisable virtual address
-pub const HEAP_SIZE: usize = 100 * 1024; // 100KiB
+pub const HEAP_SIZE: usize = 1000 * 1024; // 1MiB
 
 #[global_allocator]
 static ALLOCATOR: Mutex<FixedSizeBlockAllocator> = Mutex::new(FixedSizeBlockAllocator::new());
