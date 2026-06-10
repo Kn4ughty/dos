@@ -1,16 +1,24 @@
 use core::fmt::Display;
 
-use crate::{port::Port, tryfrom::tryfrom};
+use lazy_static::lazy_static;
+
+use crate::{port::Port, spinlock::Mutex, tryfrom::tryfrom};
+
+lazy_static! {
+    pub static ref CMOS: Mutex<Cmos> = Mutex::new(Cmos::new());
+}
 
 /// <https://wiki.osdev.org/CMOS>
+#[non_exhaustive]
 pub struct Cmos {
     register_number: Port<u8>,
     config: Port<u8>,
 }
 
 impl Cmos {
+    /// Users of this must access via the mutex. (since ports are global)
     #[must_use]
-    pub fn new() -> Self {
+    fn new() -> Self {
         let mut cmos = Cmos {
             register_number: Port::new(0x70),
             config: Port::new(0x71),

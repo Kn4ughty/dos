@@ -27,8 +27,12 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     os::memory_init(bootinfo);
     os::post_memory_init();
 
-    let mut cmos = os::time::rtc::Cmos::new();
-    println!("current time: {}", cmos.get_datetime());
+    println!(
+        "current time: {}",
+        os::time::rtc::CMOS.lock().get_datetime()
+    );
+
+    os::time::pit::set_interval(1000.0);
 
     #[cfg(test)]
     test_main();

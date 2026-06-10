@@ -70,7 +70,7 @@ lazy_static! {
         idt[interrupt_index(14)].set_handler_fn(irq14_handler);
         idt[interrupt_index(15)].set_handler_fn(irq15_handler);
 
-        set_irq_handler(InterruptIndex::Timer.as_u8(), timer_interrupt_handler);
+        set_irq_handler(InterruptIndex::Timer.as_u8(), crate::time::pit::pit_tick_interrupt_handler);
         set_irq_handler(InterruptIndex::Keyboard.as_u8(), keyboard_interrupt_handler);
         idt
     };
@@ -155,10 +155,6 @@ extern "x86-interrupt" fn page_fault_handler(
     println!("Error code: {:?}", error_code);
     println!("{:#?}", stack_frame);
     hlt_loop();
-}
-
-fn timer_interrupt_handler() {
-    //print!(".");
 }
 
 fn keyboard_interrupt_handler() {
