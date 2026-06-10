@@ -3,7 +3,7 @@ use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
 use core::task::{Context, Poll, Waker};
 use crossbeam_queue::ArrayQueue;
 
-const MAX_TASKS: usize = 100;
+pub const MAX_TASKS: usize = 100;
 
 #[derive(Debug)]
 pub struct Executor {

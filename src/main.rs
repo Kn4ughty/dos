@@ -32,8 +32,6 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
         os::time::rtc::CMOS.lock().get_datetime()
     );
 
-    os::time::pit::set_interval(1000.0);
-
     #[cfg(test)]
     test_main();
 

@@ -6,6 +6,7 @@ use core::{future::Future, pin::Pin};
 
 pub mod executor;
 pub mod keyboard;
+pub mod sleep;
 
 pub struct Task {
     id: TaskId,

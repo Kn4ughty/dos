@@ -29,7 +29,8 @@ pub fn set_interval(hz: f64) {
 }
 
 pub fn pit_tick_interrupt_handler() {
-    let _num = super::MS_COUNT.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+    let _num = super::MS_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    super::wake_expired();
     // use crate::serial_println;
     // serial_println!("n: {num}");
 }
