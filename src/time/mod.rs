@@ -1,4 +1,8 @@
-use core::{sync::atomic::AtomicU64, sync::atomic::Ordering, task::Waker};
+use core::{
+    sync::atomic::{AtomicU64, Ordering},
+    task::Waker,
+    time::Duration,
+};
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::spinlock::Mutex;
@@ -80,4 +84,22 @@ pub fn wake_expired() {
         let mut wakers = TIMER_WAKERS.lock();
         wakers.wake_expired(now);
     });
+}
+
+pub struct Instant {
+    start_tick_ms: u64,
+}
+
+impl Instant {
+    #[must_use]
+    pub fn now() -> Instant {
+        Instant {
+            start_tick_ms: get_ticks(),
+        }
+    }
+
+    #[must_use]
+    pub fn elapsed(&self) -> Duration {
+        Duration::from_millis(get_ticks() - self.start_tick_ms)
+    }
 }
