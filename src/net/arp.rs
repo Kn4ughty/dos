@@ -2,6 +2,7 @@ use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
 use crate::spinlock::Mutex;
 use core::net::Ipv4Addr;
+use core::time::Duration;
 
 use super::ethernet::MacAddress;
 use core::convert::TryInto;
@@ -62,14 +63,24 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
 }
 
 pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddress> {
+    log::info!("finding arp target: {:?}", ip);
     if let Some(ip) = ARP_TABLE.lock().get(&ip) {
         return Some(*ip);
     }
+
     send_arp_request(ip, interface).await;
 
-    // SLEEP 5 seconds?
+    // Now i need some way to wait and check if i get a response, in a non blocking way.
+    // A 1 second timeout.
+    // i.e, how to do a non blocking sleep.
+    // Going further, can that sleep be interrupted on after an arp packet has come in?
+    // So that this method can check for updates and finish quicker
 
-    // try again
+    log::info!("Sleeping 1 second");
+    crate::task::sleep::sleep_duration(Duration::from_secs(1)).await;
+    log::info!("Sleep ened");
+
+    // for now just try again
     if let Some(ip) = ARP_TABLE.lock().get(&ip) {
         return Some(*ip);
     }
