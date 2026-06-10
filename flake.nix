@@ -23,6 +23,7 @@
                   grub2
                   xorriso
                   just
+                  iptables
                 ];
             };
         }
