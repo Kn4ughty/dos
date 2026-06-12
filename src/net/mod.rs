@@ -89,6 +89,7 @@ trait EthernetDevice {
 }
 
 pub fn init() {
+    log::debug!("Network init");
     PACKET_QUEUE
         .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
         .expect("packet queue already init");
@@ -146,7 +147,7 @@ pub async fn get_packet() {
     let intf = Interface {
         config: InterfaceConfig {
             mac,
-            ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
+            ip: Ipv4Addr::from_octets([192, 168, 68, 210]),
         },
         which: WhichInterface::RTL8139,
     };

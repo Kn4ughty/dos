@@ -17,6 +17,7 @@ static INTERPRETER: OnceCell<Mutex<Interpreter<MyHandler>>> = OnceCell::uninit()
 pub static FADT: OnceCell<Fadt> = OnceCell::uninit();
 
 pub fn init() {
+    log::debug!("ACPI init");
     let handler = MyHandler;
 
     // root system descriptor pointer
@@ -98,8 +99,10 @@ impl acpi::Handler for MyHandler {
         physical_address: usize,
         size: usize,
     ) -> acpi::PhysicalMapping<Self, T> {
+        log::trace!("acpi map_phys_reg: {:#0x}", physical_address);
         let phys = PhysAddr::new(physical_address as u64);
         let virt = crate::mem::phys_to_virt(phys);
+        log::trace!("virt address: {:#0x}", physical_address);
         let ptr = NonNull::new(virt.as_mut_ptr()).unwrap();
 
         acpi::PhysicalMapping {
@@ -310,6 +313,7 @@ fn read_addr<T>(addr: usize) -> T
 where
     T: Copy,
 {
+    log::trace!("acpi read_addr: {:#0x}", addr);
     let virt = crate::mem::phys_to_virt(PhysAddr::new(addr as u64));
     unsafe { *virt.as_ptr() }
 }

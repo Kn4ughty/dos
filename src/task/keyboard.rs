@@ -1,8 +1,10 @@
+use crate::{vga_print, vga_println};
+use alloc::{string::String, vec::Vec};
 // OnceCell is needed isntead of lazy_static becase we need to ensure the interrupt handler does not
 // perform a heap allocation.
-use crate::print;
 use conquer_once::spin::OnceCell;
 use core::{
+    char,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -11,9 +13,10 @@ use futures_util::{
     stream::{Stream, StreamExt},
     task::AtomicWaker,
 };
-use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
 
 const QUEUE_SIZE: usize = 100;
+/// Contains keyboard scancodes that have not been intepretered as keys yet.
 static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -76,22 +79,67 @@ impl Stream for ScancodeStream {
     }
 }
 
-pub async fn print_keypresses() {
-    let mut scancodes = ScancodeStream::new();
-    let mut keyboard = Keyboard::new(
-        ScancodeSet1::new(),
-        layouts::Us104Key,
-        HandleControl::Ignore,
-    );
+pub struct Shell {
+    text_buffer: Vec<char>,
+    scancode_stream: ScancodeStream,
+    keyboard: Keyboard<layouts::Us104Key, ScancodeSet1>,
+}
 
-    // https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
-    while let Some(scancode) = scancodes.next().await {
-        if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
-            && let Some(key) = keyboard.process_keyevent(key_event)
-        {
-            match key {
-                DecodedKey::RawKey(key) => print!("{key:?}"),
-                DecodedKey::Unicode(character) => print!("{character}"),
+impl Shell {
+    #[must_use]
+    pub fn new() -> Self {
+        vga_print!("\n> ");
+        Shell {
+            text_buffer: Vec::new(),
+            scancode_stream: ScancodeStream::new(),
+            keyboard: Keyboard::new(
+                ScancodeSet1::new(),
+                layouts::Us104Key,
+                HandleControl::Ignore,
+            ),
+        }
+    }
+
+    pub async fn run(mut self) {
+        // https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
+        while let Some(scancode) = self.scancode_stream.next().await {
+            if let Ok(Some(key_event)) = self.keyboard.add_byte(scancode)
+                && let Some(key) = self.keyboard.process_keyevent(key_event)
+            {
+                self.handle_key(key);
+            }
+        }
+    }
+
+    fn handle_key(&mut self, key: DecodedKey) {
+        match key {
+            DecodedKey::RawKey(key) => {
+                if key == KeyCode::Return {
+                    // Woah!
+                    vga_print!("return {key:?}");
+                }
+            }
+            DecodedKey::Unicode(character) => {
+                if character == '\n' {
+                    Self::handle_command(self.text_buffer.as_slice());
+                    self.text_buffer.clear();
+                    vga_print!("\n> ");
+                } else {
+                    self.text_buffer.push(character);
+                    vga_print!("{character}");
+                }
+            }
+        }
+    }
+
+    fn handle_command(command: &[char]) {
+        let command: String = command.iter().collect();
+        match command.as_str() {
+            "lspci" => {
+                crate::pci::lspci();
+            }
+            _ => {
+                vga_println!("Unknown command!");
             }
         }
     }

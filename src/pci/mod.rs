@@ -1,6 +1,7 @@
 /// PCI (Peripheral Component Interconnect)
 /// See <https://wiki.osdev.org/PCI> for info
 use crate::port::Port;
+use crate::println;
 use crate::spinlock::Mutex;
 
 mod class_codes;
@@ -154,4 +155,15 @@ pub struct PCIDeviceHeader {
     /// Pointer to mmio address
     pub base_addr0: u32,
     pub interrupt_line: u8,
+}
+
+pub fn lspci() {
+    for bus in 0..=255 {
+        for device in 0..=31 {
+            let mut pci_device = crate::pci::PCIDevice::new(bus, device);
+            if let Some(header) = pci_device.get_header() {
+                println!("{:?}", header);
+            }
+        }
+    }
 }

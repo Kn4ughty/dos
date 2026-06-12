@@ -35,6 +35,7 @@ pub fn irq_handler() {
 }
 
 pub fn find_rtl() {
+    log::debug!("Finding rtl");
     for bus in 0..=255 {
         for device in 0..=31 {
             let mut pci_device = crate::pci::PCIDevice::new(bus, device);

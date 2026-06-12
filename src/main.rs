@@ -23,6 +23,7 @@ fn bootimage_start(boot_info: &'static BootInfo) -> ! {
 
 fn k_main(bootinfo: &'static BootInfo) -> ! {
     vga_println!("Hello from rustland!");
+    log::trace!("trace print");
     os::init();
     os::memory_init(bootinfo);
     os::post_memory_init();
@@ -38,7 +39,8 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     use os::task::{Task, executor::Executor, keyboard};
 
     let mut executor = Executor::new();
-    executor.spawn(Task::new(keyboard::print_keypresses(), "Keyboard"));
+    let shell = keyboard::Shell::new();
+    executor.spawn(Task::new(shell.run(), "Shell"));
     executor.spawn(Task::new(net::get_packet(), "network"));
     executor.run();
 }
