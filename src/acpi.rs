@@ -21,17 +21,23 @@ pub fn init() {
     let handler = MyHandler;
 
     // root system descriptor pointer
-    let Ok(rsdp) = (unsafe { rsdp::Rsdp::search_for_on_bios(handler) }) else {
+    let Ok(rsdp_mapping) = (unsafe { rsdp::Rsdp::search_for_on_bios(handler) }) else {
         log::error!("failed to find bios acpi");
         return;
     };
 
-    let Ok(table) =
-        (unsafe { AcpiTables::from_rsdt(handler, rsdp.revision(), rsdp.rsdt_address as usize) })
-    else {
-        log::error!("Failed to get AcpiTables");
+    let rsdp_phys = rsdp_mapping.physical_start;
+
+    let Ok(table) = (unsafe { AcpiTables::from_rsdp(handler, rsdp_phys) }) else {
+        log::error!("failed to get AcpiTables");
         return;
     };
+    // let Ok(table) =
+    //     (unsafe { AcpiTables::from_rsdt(handler, rsdp.revision(), rsdp.rsdt_address as usize) })
+    // else {
+    //     log::error!("Failed to get AcpiTables");
+    //     return;
+    // };
 
     // fixed ACPI desciprion table
     let fadt_mapping = table.find_table::<acpi::sdt::fadt::Fadt>().unwrap();
@@ -90,6 +96,8 @@ pub fn read_thermal_zones() {
     todo!();
 }
 
+static ACPI_INVALID_REGION: [u8; 4096] = [0u8; 4096];
+
 #[derive(Debug, Clone, Copy)]
 struct MyHandler;
 
@@ -100,10 +108,28 @@ impl acpi::Handler for MyHandler {
         size: usize,
     ) -> acpi::PhysicalMapping<Self, T> {
         log::trace!("acpi map_phys_reg: {:#0x}", physical_address);
-        let phys = PhysAddr::new(physical_address as u64);
-        let virt = crate::mem::phys_to_virt(phys);
-        log::trace!("virt address: {:#0x}", physical_address);
-        let ptr = NonNull::new(virt.as_mut_ptr()).unwrap();
+
+        let virt_ptr: *mut T = (|| {
+            let phys = PhysAddr::try_new(physical_address as u64)
+                .map_err(|e| {
+                    log::warn!(
+                        "ACPI: invalid physical address {:#x} {e:?}",
+                        physical_address
+                    );
+                })
+                .ok()?;
+            let virt = crate::mem::try_phys_to_virt(phys).or_else(|| {
+                log::warn!(
+                    "ACPI: phys {:#x} produces non canonical virt",
+                    physical_address
+                );
+                None
+            })?;
+            Some(virt.as_mut_ptr())
+        })()
+        .unwrap_or(ACPI_INVALID_REGION.as_ptr() as *mut T);
+
+        let ptr = NonNull::new(virt_ptr).unwrap();
 
         acpi::PhysicalMapping {
             physical_start: physical_address,
@@ -309,11 +335,20 @@ const MAX_ACPI_MUTEXES: usize = 32;
 static ACPI_MUTEXES: Mutex<[AcpiMutex; MAX_ACPI_MUTEXES]> =
     Mutex::new([const { unused_mutex() }; MAX_ACPI_MUTEXES]);
 
+/// # Safety
+/// This function is very unsafe. It must only be called for types where all 0 bits is valid.
 fn read_addr<T>(addr: usize) -> T
 where
     T: Copy,
 {
     log::trace!("acpi read_addr: {:#0x}", addr);
-    let virt = crate::mem::phys_to_virt(PhysAddr::new(addr as u64));
-    unsafe { *virt.as_ptr() }
+    let result = PhysAddr::try_new(addr as u64)
+        .ok()
+        .and_then(crate::mem::try_phys_to_virt)
+        .map(|virt| unsafe { *virt.as_ptr::<T>() });
+
+    result.unwrap_or_else(|| {
+        log::warn!("ACPI: invalid read at {:#x}", addr);
+        unsafe { *ACPI_INVALID_REGION.as_ptr().cast::<T>() }
+    })
 }

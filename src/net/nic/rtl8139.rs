@@ -38,21 +38,25 @@ pub fn find_rtl() {
     log::debug!("Finding rtl");
     for bus in 0..=255 {
         for device in 0..=31 {
-            let mut pci_device = crate::pci::PCIDevice::new(bus, device);
-            #[expect(clippy::collapsible_if, reason = "future proofing")]
-            if let Some(header) = pci_device.get_header() {
-                if let Some(mut rtl) = RTL8139::try_new(&header) {
-                    debug!("Found rtl!");
-                    debug!("{:#?}", header);
-                    pci_device.enable_bus_mastering();
+            for function in 0..=7 {
+                let mut pci_device = crate::pci::PCIDevice::new(bus, device, function);
+                #[expect(clippy::collapsible_if, reason = "future proofing")]
+                if let Some(header) = pci_device.get_header() {
+                    if let Some(mut rtl) = RTL8139::try_new(&header) {
+                        debug!("Found rtl!");
+                        debug!("{:#?}", header);
+                        pci_device.enable_bus_mastering();
 
-                    rtl.init();
-                    // rtl.send_arp();
-                    rtl.register_interrupts(header.interrupt_line);
+                        rtl.init();
+                        // rtl.send_arp();
+                        rtl.register_interrupts(header.interrupt_line);
+                        return;
+                    }
                 }
             }
         }
     }
+    log::warn!("Could not find RTL");
 }
 
 // Receive status register flags

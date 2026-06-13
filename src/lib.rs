@@ -150,6 +150,7 @@ pub fn memory_init(bootinfo: &'static BootInfo) {
 pub fn post_memory_init() {
     log::debug!("Post memory init");
     net::init();
+    log::debug!("Post memory init");
     acpi::init();
 }
 

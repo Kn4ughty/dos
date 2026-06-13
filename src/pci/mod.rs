@@ -73,40 +73,41 @@ impl PCIBusDevice {
 pub struct PCIDevice {
     bus: u8,
     slot: u8,
+    func: u8,
 }
 
 impl PCIDevice {
     #[must_use]
-    pub fn new(bus: u8, slot: u8) -> Self {
-        PCIDevice { bus, slot }
+    pub fn new(bus: u8, slot: u8, func: u8) -> Self {
+        PCIDevice { bus, slot, func }
     }
 
-    fn read_word(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u16 {
-        bus.read_word(self.bus, self.slot, func, offset)
+    fn read_word(&mut self, bus: &mut PCIBusDevice, offset: u8) -> u16 {
+        bus.read_word(self.bus, self.slot, self.func, offset)
     }
 
-    fn read_dword(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8) -> u32 {
-        bus.read_dword(self.bus, self.slot, func, offset)
+    fn read_dword(&mut self, bus: &mut PCIBusDevice, offset: u8) -> u32 {
+        bus.read_dword(self.bus, self.slot, self.func, offset)
     }
 
-    fn write_dword(&mut self, bus: &mut PCIBusDevice, func: u8, offset: u8, value: u32) {
-        bus.write_dword(self.bus, self.slot, func, offset, value);
+    fn write_dword(&mut self, bus: &mut PCIBusDevice, offset: u8, value: u32) {
+        bus.write_dword(self.bus, self.slot, self.func, offset, value);
     }
 
     // This is a function, so that it can be called by itself for later quickly enumerating
     // available pci devices.
     pub fn get_header_type(&mut self, bus: &mut PCIBusDevice) -> u8 {
-        let dword = self.read_dword(bus, 0, 0x0C);
+        let dword = self.read_dword(bus, 0x0C);
         ((dword >> 16) & 0xFF) as u8
     }
 
     pub fn enable_bus_mastering(&mut self) {
         let bus = &mut PCI_BUS.lock();
-        let command = bus.read_word(self.bus, self.slot, 0, 0x4);
+        let command = bus.read_word(self.bus, self.slot, self.func, 0x4);
         let new_command = command | 0x4;
-        let dword = bus.read_dword(self.bus, self.slot, 0, 0x4);
+        let dword = bus.read_dword(self.bus, self.slot, self.func, 0x4);
         let new_dword = (dword & 0xFFFF_0000) | (u32::from(new_command) & 0xFFFF);
-        self.write_dword(bus, 0, 0x4, new_dword);
+        self.write_dword(bus, 0x4, new_dword);
     }
 
     pub fn get_header(&mut self) -> Option<PCIDeviceHeader> {
@@ -117,26 +118,26 @@ impl PCIDevice {
         // instead of read_word. This is because inb is a very slow call.
 
         let vendor_id = {
-            let t = self.read_word(bus, 0, 0);
+            let t = self.read_word(bus, 0);
             if t == 0xFFFF { None } else { Some(t) }
         }?;
 
         Some(PCIDeviceHeader {
             vendor_id,
-            device_id: self.read_word(bus, 0, 0x2),
-            command: self.read_word(bus, 0, 0x4),
-            status: self.read_word(bus, 0, 0x6),
-            revision_id: (self.read_word(bus, 0, 0x8) & 0xFF) as u8,
-            prog_if: ((self.read_word(bus, 0, 0x8) >> 8) & 0xFF) as u8,
+            device_id: self.read_word(bus, 0x2),
+            command: self.read_word(bus, 0x4),
+            status: self.read_word(bus, 0x6),
+            revision_id: (self.read_word(bus, 0x8) & 0xFF) as u8,
+            prog_if: ((self.read_word(bus, 0x8) >> 8) & 0xFF) as u8,
             class: {
-                let class_code = ((self.read_word(bus, 0, 0xA) >> 8) & 0xFF) as u8;
-                let subclass = (self.read_word(bus, 0, 0xa) & 0xFF) as u8;
+                let class_code = ((self.read_word(bus, 0xA) >> 8) & 0xFF) as u8;
+                let subclass = (self.read_word(bus, 0xa) & 0xFF) as u8;
 
                 ClassCode::try_from((class_code, subclass)).ok()?
             },
             header_type: self.get_header_type(bus),
-            base_addr0: self.read_dword(bus, 0, 0x10),
-            interrupt_line: (self.read_word(bus, 0, 0x3c) & 0xFF) as u8,
+            base_addr0: self.read_dword(bus, 0x10),
+            interrupt_line: (self.read_word(bus, 0x3c) & 0xFF) as u8,
         })
     }
 }
@@ -160,9 +161,11 @@ pub struct PCIDeviceHeader {
 pub fn lspci() {
     for bus in 0..=255 {
         for device in 0..=31 {
-            let mut pci_device = crate::pci::PCIDevice::new(bus, device);
-            if let Some(header) = pci_device.get_header() {
-                println!("{:?}", header);
+            for function in 0..=7 {
+                let mut pci_device = crate::pci::PCIDevice::new(bus, device, function);
+                if let Some(header) = pci_device.get_header() {
+                    println!("{:?}", header);
+                }
             }
         }
     }

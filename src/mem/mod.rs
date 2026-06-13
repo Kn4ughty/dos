@@ -69,6 +69,12 @@ pub fn phys_to_virt(addr: PhysAddr) -> VirtAddr {
     VirtAddr::new(addr.as_u64() + PHYS_MEM_OFFSET.get().unwrap())
 }
 
+#[must_use]
+pub fn try_phys_to_virt(addr: PhysAddr) -> Option<VirtAddr> {
+    let offset = PHYS_MEM_OFFSET.get()?;
+    VirtAddr::try_new(addr.as_u64() + offset).ok()
+}
+
 /// Limit the scope of unsafe. Must only be reachable through unsafe fn from outside this module
 fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
     use x86_64::registers::control::Cr3;
