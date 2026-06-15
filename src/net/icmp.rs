@@ -24,7 +24,7 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
 
         let resp_bytes = response.to_bytes();
         let ipv4 = IPv4Packet::from_source_dest_and_data(
-            interface.config.ip,
+            interface.ip,
             packet.header.source_address,
             resp_bytes.as_slice(),
         )

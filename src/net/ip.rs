@@ -9,7 +9,7 @@ use super::{Interface, ones_complement_checksum};
 pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);
     // TODO handle more ip's like loopback
-    if packet.header.destination_address != interface.config.ip {
+    if packet.header.destination_address != interface.ip {
         return;
     }
     trace!("Decided to handle packet");
@@ -31,8 +31,17 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
 }
 
 pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: Interface) {
-    let Some(dest_mac) = arp::find_target(packet.header.destination_address, &interface).await
-    else {
+    // Goal. Determine if a destination address is within the current subnet
+    // if (mask & gateway) == (mask & destination_address)
+    let on_same_subnet: bool = interface.subnet_mask & interface.gateway
+        == interface.subnet_mask & packet.header.destination_address;
+
+    let mut dest_ip_for_arp = packet.header.destination_address;
+    if !on_same_subnet {
+        dest_ip_for_arp = interface.gateway;
+    }
+
+    let Some(dest_mac) = arp::find_target(dest_ip_for_arp, &interface).await else {
         log::error!(
             "Unable to send ip packet {:?} \n No mac address found. Dropping",
             packet.header
@@ -44,7 +53,7 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: Interface) {
     let bytes = packet.to_bytes();
     let ep = ethernet::EthernetPacket {
         destination: dest_mac,
-        source: interface.config.mac,
+        source: interface.mac,
         typ: ethernet::EtherType::IPv4,
         data: bytes.as_slice(),
     };
@@ -103,7 +112,13 @@ impl TryFrom<[u8; 20]> for IPv4Header {
     fn try_from(v: [u8; 20]) -> Result<Self, Self::Error> {
         Ok(Self {
             version: (v[0] >> 4) & 0xF,
-            ihl: v[0] & 0xF,
+            ihl: {
+                let len = v[0] & 0xF;
+                if len != 5 {
+                    log::warn!("IPv4 packet with wrong len. Keeping with warning.");
+                }
+                len
+            },
             dscp: (v[1] >> 2) & 0b0000_1111,
             ecn: v[1] & 0b11,
             total_length: u16::from_be_bytes(v[2..=3].try_into().unwrap()),

@@ -55,7 +55,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
             trace!("arp_requst: {:?}", p);
 
             // Ignore packets not addressed to ourselves
-            if p.target_protocol_address != interface.config.ip {
+            if p.target_protocol_address != interface.ip {
                 return;
             }
 
@@ -64,8 +64,8 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
 
             trace!("Arp matches, sending reply");
             let arp = ArpPacket::new_arp_reply(
-                interface.config.mac,
-                interface.config.ip,
+                interface.mac,
+                interface.ip,
                 p.sender_hardware_address,
                 p.sender_protocol_address,
             );
@@ -73,7 +73,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
             let arp_bytes = arp.to_bytes();
             let ep = EthernetPacket {
                 destination: p.sender_hardware_address,
-                source: interface.config.mac,
+                source: interface.mac,
                 typ: EtherType::Arp,
                 data: &arp_bytes,
             };
@@ -114,12 +114,12 @@ pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddre
 
 // Somehow include timeout
 async fn send_arp_request(target: Ipv4Addr, interface: &Interface) {
-    let ap = ArpPacket::new_arp_request(interface.config.mac, interface.config.ip, target);
+    let ap = ArpPacket::new_arp_request(interface.mac, interface.ip, target);
     let ap_bytes = ap.to_bytes();
 
     let ep = EthernetPacket {
         destination: super::ethernet::BROADCAST_MAC,
-        source: interface.config.mac,
+        source: interface.mac,
         typ: EtherType::Arp,
         data: &ap_bytes,
     };

@@ -51,13 +51,6 @@ pub async fn send_frame(interface: Interface, frame: EthernetFrame) {
     .await;
 }
 
-/// Config for a single network interface
-#[derive(Clone, Copy)]
-pub struct InterfaceConfig {
-    mac: ethernet::MacAddress,
-    ip: Ipv4Addr,
-}
-
 #[derive(Clone, Copy)]
 pub enum WhichInterface {
     RTL8139,
@@ -79,7 +72,10 @@ impl WhichInterface {
 
 #[derive(Clone, Copy)]
 pub struct Interface {
-    config: InterfaceConfig,
+    mac: ethernet::MacAddress,
+    ip: Ipv4Addr,
+    gateway: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
     which: WhichInterface,
 }
 
@@ -143,12 +139,11 @@ impl Stream for NetworkStream {
 pub async fn get_packet() {
     let mut nns = NetworkStream {};
 
-    let mac = RTL.get().unwrap().lock().get_mac();
     let intf = Interface {
-        config: InterfaceConfig {
-            mac,
-            ip: Ipv4Addr::from_octets([192, 168, 68, 210]),
-        },
+        mac: RTL.get().unwrap().lock().get_mac(),
+        ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
+        gateway: Ipv4Addr::from_octets([192, 168, 10, 1]),
+        subnet_mask: Ipv4Addr::from_octets([0xFF, 0xFF, 0xFF, 0x00]),
         which: WhichInterface::RTL8139,
     };
 
