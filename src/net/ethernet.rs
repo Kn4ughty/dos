@@ -1,6 +1,9 @@
 use crate::tryfrom::tryfrom;
 use alloc::{vec, vec::Vec};
 
+/// Max transmission unit in bytes
+pub const ETHERNET_MTU: u16 = 1500;
+
 #[derive(Debug)]
 pub enum EthernetError {
     MACWrongLengthSlice,

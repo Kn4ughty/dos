@@ -77,7 +77,7 @@ pub struct IPv4Header {
     /// 4 bit version. For ipv4, this is always 4 (lol)
     version: u8,
     /// 4 bit header length. Length of the header in 32 bit words.
-    /// Minimum is 5.
+    /// Minimum is 5. We never use options so its always going to = 5
     ihl: u8,
     /// 6 bit Differentiated Services Code point
     dscp: u8,
@@ -134,6 +134,12 @@ impl TryFrom<[u8; 20]> for IPv4Header {
     }
 }
 
+impl IPv4Header {
+    pub fn len(&self) -> usize {
+        (self.ihl as usize) * 4
+    }
+}
+
 bitflags! {
     #[derive(Debug)]
     struct IPv4Flags: u8 {
@@ -183,6 +189,16 @@ impl<'a> IPv4Packet<'a> {
         data: &'a [u8],
     ) -> Result<IPv4Packet<'a>, IpError> {
         let total_len = u16::try_from(20 + data.len()).map_err(|_| IpError::DataTooLong)?;
+
+        if total_len > ethernet::ETHERNET_MTU {
+            log::warn!(
+                "Tried to create Ipv4Packet ({})bytes bigger than MTU ({})bytes",
+                total_len,
+                ethernet::ETHERNET_MTU
+            );
+            return Err(IpError::DataTooLong);
+        }
+
         let p = IPv4Packet {
             header: IPv4Header {
                 version: 4,
@@ -191,7 +207,7 @@ impl<'a> IPv4Packet<'a> {
                 ecn: 0,
                 total_length: total_len,
                 identification: 0xFEED,
-                flags: IPv4Flags::empty(),
+                flags: IPv4Flags::DF,
                 fragment_offset: 0,
                 ttl: 20,
                 protocol: IPProtocol::Icmp,
