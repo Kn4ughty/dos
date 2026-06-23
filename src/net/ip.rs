@@ -1,7 +1,10 @@
 use super::{arp, ethernet};
 use crate::tryfrom::tryfrom;
 use bitflags::bitflags;
-use core::net::Ipv4Addr;
+use core::{
+    hash::{Hash, Hasher},
+    net::Ipv4Addr,
+};
 use log::trace;
 
 use super::{Interface, ones_complement_checksum};
@@ -63,7 +66,7 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: Interface) {
 // see https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
 tryfrom! {
     #[repr(u8)]
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, Hash)]
     pub enum IPProtocol {
         Icmp = 0x01,
         Tcp = 0x06,
@@ -134,9 +137,13 @@ impl TryFrom<[u8; 20]> for IPv4Header {
     }
 }
 
-impl IPv4Header {
-    pub fn len(&self) -> usize {
-        (self.ihl as usize) * 4
+impl Hash for IPv4Header {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash only the fields that make sense for identification
+        self.identification.hash(state);
+        self.source_address.hash(state);
+        self.destination_address.hash(state);
+        self.protocol.hash(state);
     }
 }
 
