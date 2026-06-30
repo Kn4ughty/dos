@@ -49,6 +49,7 @@ pub fn find_rtl() {
 
                         rtl.init();
                         // rtl.send_arp();
+                        log::info!("{:?}", rtl.get_mac());
                         rtl.register_interrupts(header.interrupt_line);
                         return;
                     }
