@@ -13,8 +13,9 @@ resolver = "3"
 members = ["colour_printing"]
 
 [features]
-default = ["bootimage"]
+default = ["bootimage", "backdoor"]
 bootimage = []
+backdoor = []
 
 [package.metadata.bootimage]
 test-args = [

