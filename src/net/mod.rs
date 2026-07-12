@@ -8,10 +8,10 @@ use core::{
 use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use log::{debug, error, trace, warn};
+use no_std_async::RwLock;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::net::ethernet::EtherType;
-use crate::sync::spinlock::Mutex;
+use crate::{net::ethernet::EtherType, task::block_on};
 
 mod arp;
 mod ethernet;
@@ -31,7 +31,7 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 // The interface needs to allow multiple reads at once.
 // That means that a RwLock needs to be used.
 // Using a mutex for now
-static INTERFACE: Mutex<Option<Interface>> = Mutex::new(None);
+static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
 
 /// Contains data about a network connection, but does not actually hold the nic
 #[derive(Clone, Copy)]
@@ -86,7 +86,8 @@ pub fn init() {
         which: WhichInterface::RTL8139,
     };
 
-    let _ = INTERFACE.lock().insert(intf);
+    let mut target = block_on(INTERFACE.write());
+    *target = Some(intf);
 }
 
 static TX_WAKER: AtomicWaker = AtomicWaker::new();
@@ -182,7 +183,7 @@ pub async fn loop_networking() {
         match ep.typ {
             EtherType::Arp => {
                 if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
-                    arp::handle_arp_incoming(&a, &INTERFACE.lock().unwrap()).await;
+                    arp::handle_arp_incoming(&a, &INTERFACE.read().await.unwrap()).await;
                 }
             }
             EtherType::IPv4 => {
@@ -192,7 +193,7 @@ pub async fn loop_networking() {
                         .lock()
                         .insert(ip_packet.header.source_address, ep.source);
 
-                    ip::handle_packet(&ip_packet, &INTERFACE.lock().unwrap()).await;
+                    ip::handle_packet(&ip_packet, &INTERFACE.read().await.unwrap()).await;
                 }
             }
         }

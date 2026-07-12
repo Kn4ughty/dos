@@ -2,6 +2,7 @@
 name = "os"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
 
 [[bin]]
 name = "os"
@@ -10,7 +11,7 @@ bench = false
 
 [workspaces]
 resolver = "3"
-members = ["colour_printing"]
+members = []
 
 [features]
 default = ["bootimage", "backdoor"]
@@ -51,15 +52,16 @@ test-timeout = 300 #seconds
 # harness = false
 
 [dependencies]
-colour_printing = {path = "colour_printing" }
 bootloader = { version = "0.9", features = ["map_physical_memory"] }
 x86_64 = "0.15.4"
 pc-keyboard = "0.8.0"
-linked_list_allocator = "0.9.0"
+linked_list_allocator = "0.10.6"
 bitflags = "2.11.1"
 hashbrown = "0.17.1"
 log = "0.4.32"
 acpi = { version = "6.1.1", features = ["alloc"] }
+no-std-async = "1.1.2"
+
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -71,7 +73,7 @@ default-features = false
 features = ["alloc"]
 
 [dependencies.conquer-once]
-version = "0.2.0"
+version = "0.3.2"
 default-features = false
 
 [dependencies.futures-util]
