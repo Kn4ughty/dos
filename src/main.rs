@@ -41,7 +41,7 @@ fn k_main(bootinfo: &'static BootInfo) -> ! {
     let mut executor = Executor::new();
     let shell = keyboard::Shell::new();
     executor.spawn(Task::new(shell.run(), "Shell"));
-    executor.spawn(Task::new(net::get_packet(), "network"));
+    executor.spawn(Task::new(net::loop_networking(), "network"));
     executor.run();
 }
 

@@ -9,7 +9,7 @@ use log::trace;
 
 use super::{Interface, ones_complement_checksum};
 
-pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
+pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);
     // TODO handle more ip's like loopback
     if packet.header.destination_address != interface.ip {
@@ -33,7 +33,7 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: Interface) {
     }
 }
 
-pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: Interface) {
+pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) {
     // Goal. Determine if a destination address is within the current subnet
     // if (mask & gateway) == (mask & destination_address)
     let on_same_subnet: bool = interface.subnet_mask & interface.gateway

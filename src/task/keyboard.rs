@@ -1,4 +1,4 @@
-use crate::{vga_print, vga_println};
+use crate::{task::block_on, vga_print, vga_println};
 use alloc::{string::String, vec::Vec};
 // OnceCell is needed isntead of lazy_static becase we need to ensure the interrupt handler does not
 // perform a heap allocation.
@@ -13,7 +13,7 @@ use futures_util::{
     stream::{Stream, StreamExt},
     task::AtomicWaker,
 };
-use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
 
 const QUEUE_SIZE: usize = 100;
 /// Contains keyboard scancodes that have not been intepretered as keys yet.
@@ -139,6 +139,7 @@ impl Shell {
             "date" => {
                 println!("{}", crate::time::rtc::CMOS.lock().get_datetime());
             }
+            "ping" => block_on(crate::net::ping()),
             _ => {
                 vga_println!("Unknown command!");
             }

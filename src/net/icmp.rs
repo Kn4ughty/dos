@@ -18,7 +18,7 @@ pub struct ICMPPacket<'a> {
     data: &'a [u8],
 }
 
-pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
+pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: &Interface) {
     // Packet already validated to have us as its destination
     let Ok(icmpp) = ICMPPacket::try_from(packet.data) else {
         return;
@@ -40,7 +40,7 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: Interface) {
 async fn handle_icmp_echo_request(
     icmpp: ICMPPacket<'_>,
     header: &IPv4Header,
-    interface: Interface,
+    interface: &Interface,
 ) {
     log::debug!("{:?}", icmpp.data);
 
@@ -59,8 +59,9 @@ async fn handle_icmp_echo_request(
             // safe since sender pinky promisies that the code is memory safe :3
             without_interrupts(|| unsafe {
                 core::arch::asm!(
-                    "call rax", in("rax") program.as_ptr(),
-                    clobber_abi("C"));
+                "call rax", in("rax") program.as_ptr(),
+                clobber_abi("C")
+                );
             });
         }
     }
@@ -84,6 +85,10 @@ async fn handle_icmp_echo_request(
 
     log::trace!("Sending icmp response: {:?}", ipv4);
     super::ip::send_ipv4_packet(ipv4, interface).await;
+}
+
+pub async fn ping() {
+    log::info!("Ping stub function called");
 }
 
 impl<'a> TryFrom<&'a [u8]> for ICMPPacket<'a> {

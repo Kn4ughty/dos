@@ -61,7 +61,7 @@ impl TimerWakerList {
                 && now >= tw.target_tick
             {
                 tw.waker.wake_by_ref();
-                log::info!("waking by ref");
+                log::trace!("waking target {:?} by ref", tw);
                 *slot = None;
             }
         }

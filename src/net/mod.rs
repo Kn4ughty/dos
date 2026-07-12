@@ -10,7 +10,7 @@ use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use log::{debug, error, trace, warn};
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::net::{ethernet::EtherType, nic::rtl8139::RTL};
+use crate::{net::ethernet::EtherType, spinlock::Mutex};
 
 mod arp;
 mod ethernet;
@@ -24,15 +24,80 @@ const PACKET_QUEUE_SIZE: usize = 16;
 static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
+// The interface needs to be mutable. It could be a onceCell, but adding nic
+// is adding interfaces at runtime something i need? mmm yeah cause stuff can be unplugged.
+// that only applies to usb devices though.
+// The interface needs to allow multiple reads at once.
+// That means that a RwLock needs to be used.
+// Using a mutex for now
+static INTERFACE: Mutex<Option<Interface>> = Mutex::new(None);
+
+/// Contains data about a network connection, but does not actually hold the nic
+#[derive(Clone, Copy)]
+struct Interface {
+    mac: ethernet::MacAddress,
+    ip: Ipv4Addr,
+    gateway: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
+    which: WhichInterface,
+}
+
+#[derive(Clone, Copy)]
+enum WhichInterface {
+    RTL8139,
+}
+
+trait EthernetDevice {
+    fn send_packet(&mut self, frame: &EthernetFrame);
+    fn receive_packet(&mut self) -> Option<Vec<u8>>;
+}
+
+impl WhichInterface {
+    fn with_device<F, R>(self, f: F) -> R
+    where
+        F: FnOnce(&mut dyn EthernetDevice) -> R,
+    {
+        match self {
+            WhichInterface::RTL8139 => {
+                let mut guard = nic::rtl8139::RTL.get().unwrap().lock();
+                f(&mut *guard)
+            }
+        }
+    }
+}
+
+pub fn init() {
+    log::debug!("Network init");
+    PACKET_QUEUE
+        .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
+        .expect("packet queue already init");
+    nic::rtl8139::find_rtl();
+
+    let intf = Interface {
+        mac: nic::rtl8139::RTL
+            .get()
+            .expect("RTL8139 device shoulde exist")
+            .lock()
+            .get_mac(),
+        ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
+        gateway: Ipv4Addr::from_octets([192, 168, 10, 1]),
+        subnet_mask: Ipv4Addr::from_octets([0xFF, 0xFF, 0xFF, 0x00]),
+        which: WhichInterface::RTL8139,
+    };
+
+    let _ = INTERFACE.lock().insert(intf);
+}
+
 static TX_WAKER: AtomicWaker = AtomicWaker::new();
 static TX_COMPLETE: AtomicBool = AtomicBool::new(false);
 
-pub fn notify_tx_complete() {
+/// Called by network cards to notify that packet transmission has been completed
+fn notify_tx_complete() {
     TX_COMPLETE.store(true, Ordering::Release);
     TX_WAKER.wake();
 }
 
-pub async fn send_frame(interface: Interface, frame: EthernetFrame) {
+async fn send_frame(interface: &Interface, frame: EthernetFrame) {
     TX_COMPLETE.store(false, Ordering::Release);
     without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
 
@@ -51,48 +116,7 @@ pub async fn send_frame(interface: Interface, frame: EthernetFrame) {
     .await;
 }
 
-#[derive(Clone, Copy)]
-pub enum WhichInterface {
-    RTL8139,
-}
-
-impl WhichInterface {
-    fn with_device<F, R>(self, f: F) -> R
-    where
-        F: FnOnce(&mut dyn EthernetDevice) -> R,
-    {
-        match self {
-            WhichInterface::RTL8139 => {
-                let mut guard = nic::rtl8139::RTL.get().unwrap().lock();
-                f(&mut *guard)
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Interface {
-    mac: ethernet::MacAddress,
-    ip: Ipv4Addr,
-    gateway: Ipv4Addr,
-    subnet_mask: Ipv4Addr,
-    which: WhichInterface,
-}
-
-trait EthernetDevice {
-    fn send_packet(&mut self, frame: &EthernetFrame);
-    fn receive_packet(&mut self) -> Option<Vec<u8>>;
-}
-
-pub fn init() {
-    log::debug!("Network init");
-    PACKET_QUEUE
-        .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
-        .expect("packet queue already init");
-    nic::rtl8139::find_rtl();
-}
-
-pub fn push_packet(packet: Vec<u8>) {
+fn push_packet(packet: Vec<u8>) {
     let Ok(queue) = PACKET_QUEUE.try_get() else {
         error!("Packet queue not initialised. Dropping packet");
         return;
@@ -105,7 +129,7 @@ pub fn push_packet(packet: Vec<u8>) {
     }
 }
 
-pub struct NetworkStream {}
+struct NetworkStream {}
 
 impl Stream for NetworkStream {
     type Item = Vec<u8>;
@@ -136,16 +160,8 @@ impl Stream for NetworkStream {
 }
 
 /// Init must be called before this
-pub async fn get_packet() {
+pub async fn loop_networking() {
     let mut nns = NetworkStream {};
-
-    let intf = Interface {
-        mac: RTL.get().unwrap().lock().get_mac(),
-        ip: Ipv4Addr::from_octets([192, 168, 10, 2]),
-        gateway: Ipv4Addr::from_octets([192, 168, 10, 1]),
-        subnet_mask: Ipv4Addr::from_octets([0xFF, 0xFF, 0xFF, 0x00]),
-        which: WhichInterface::RTL8139,
-    };
 
     loop {
         let Some(packet) = nns.next().await else {
@@ -165,7 +181,7 @@ pub async fn get_packet() {
         match ep.typ {
             EtherType::Arp => {
                 if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
-                    arp::handle_arp_incoming(&a, &intf).await;
+                    arp::handle_arp_incoming(&a, &INTERFACE.lock().unwrap()).await;
                 }
             }
             EtherType::IPv4 => {
@@ -175,11 +191,15 @@ pub async fn get_packet() {
                         .lock()
                         .insert(ip_packet.header.source_address, ep.source);
 
-                    ip::handle_packet(&ip_packet, intf).await;
+                    ip::handle_packet(&ip_packet, &INTERFACE.lock().unwrap()).await;
                 }
             }
         }
     }
+}
+
+pub async fn ping() {
+    icmp::ping().await;
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {
