@@ -1,4 +1,4 @@
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 use lazy_static::lazy_static;
 

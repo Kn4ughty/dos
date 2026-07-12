@@ -2,7 +2,9 @@ use core::fmt::Display;
 
 use lazy_static::lazy_static;
 
-use crate::{port::Port, spinlock::Mutex, tryfrom::tryfrom};
+use crate::port::Port;
+use crate::sync::spinlock::Mutex;
+use crate::tryfrom::tryfrom;
 
 lazy_static! {
     pub static ref CMOS: Mutex<Cmos> = Mutex::new(Cmos::new());

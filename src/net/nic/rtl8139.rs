@@ -10,7 +10,7 @@ use crate::mem::{self, phys::PhysBuf};
 use crate::net::ethernet::EthernetFrame;
 use crate::net::{EthernetDevice, ethernet::MacAddress};
 use crate::port::Port;
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 pub static RTL: OnceCell<Mutex<RTL8139>> = OnceCell::uninit();
 

@@ -8,7 +8,7 @@ use acpi::{AcpiTables, Handler, aml::Interpreter, rsdp, sdt::fadt::Fadt};
 use conquer_once::spin::OnceCell;
 use x86_64::PhysAddr;
 
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 use crate::time;
 

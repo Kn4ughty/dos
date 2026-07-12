@@ -5,7 +5,7 @@ use core::{
 };
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 pub mod pit;
 pub mod rtc;

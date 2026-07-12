@@ -51,7 +51,7 @@ pub mod pci;
 pub mod pic;
 pub mod port;
 pub mod serial;
-pub mod spinlock;
+pub mod sync;
 pub mod task;
 pub mod time;
 pub mod tryfrom;

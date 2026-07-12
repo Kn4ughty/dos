@@ -1,4 +1,5 @@
-use crate::{spinlock::Mutex, vga_println};
+use crate::sync::spinlock::Mutex;
+use crate::vga_println;
 /// See <https://wiki.osdev.org/Serial_Ports#Programming_the_Serial_Communications_Port> for more info
 use lazy_static::lazy_static;
 

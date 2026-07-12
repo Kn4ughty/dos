@@ -10,7 +10,8 @@ use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use log::{debug, error, trace, warn};
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{net::ethernet::EtherType, spinlock::Mutex};
+use crate::net::ethernet::EtherType;
+use crate::sync::spinlock::Mutex;
 
 mod arp;
 mod ethernet;

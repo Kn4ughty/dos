@@ -9,7 +9,7 @@ pub mod fixed_size_block;
 
 use fixed_size_block::FixedSizeBlockAllocator;
 
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 pub const HEAP_START: usize = 0x_4444_4444_0000; // Easily recognisable virtual address
 pub const HEAP_SIZE: usize = 1000 * 1024; // 1MiB

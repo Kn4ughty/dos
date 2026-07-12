@@ -1,6 +1,6 @@
 use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 use core::convert::TryInto;
 use core::net::Ipv4Addr;
 use core::pin::{Pin, pin};

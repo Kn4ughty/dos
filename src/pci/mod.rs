@@ -2,7 +2,7 @@
 /// See <https://wiki.osdev.org/PCI> for info
 use crate::port::Port;
 use crate::println;
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 mod class_codes;
 pub use class_codes::ClassCode;

@@ -8,7 +8,7 @@ use crate::port::Port;
 use crate::{gdt, hlt_loop};
 use crate::{println, vga_println};
 
-use crate::spinlock::Mutex;
+use crate::sync::spinlock::Mutex;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
