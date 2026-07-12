@@ -113,14 +113,12 @@ impl Shell {
 
     fn handle_key(&mut self, key: DecodedKey) {
         match key {
-            DecodedKey::RawKey(key) => {
-                if key == KeyCode::Return {
-                    // Woah!
-                    vga_print!("return {key:?}");
-                }
+            DecodedKey::RawKey(_) => {
+                // pass
             }
             DecodedKey::Unicode(character) => {
                 if character == '\n' {
+                    vga_println!();
                     Self::handle_command(self.text_buffer.as_slice());
                     self.text_buffer.clear();
                     vga_print!("\n> ");
@@ -137,6 +135,9 @@ impl Shell {
         match command.as_str() {
             "lspci" => {
                 crate::pci::lspci();
+            }
+            "date" => {
+                println!("{}", crate::time::rtc::CMOS.lock().get_datetime());
             }
             _ => {
                 vga_println!("Unknown command!");
