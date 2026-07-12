@@ -11,7 +11,7 @@ use log::{debug, error, trace, warn};
 use no_std_async::RwLock;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{net::ethernet::EtherType, task::block_on};
+use crate::{net::ethernet::EtherType, println, task::block_on, time};
 
 mod arp;
 mod ethernet;
@@ -201,7 +201,10 @@ pub async fn loop_networking() {
 }
 
 pub async fn ping() {
-    icmp::ping().await;
+    let start = time::Instant::now();
+    icmp::ping_once(Ipv4Addr::from_octets([192, 168, 68, 1])).await;
+    // icmp::ping_once(Ipv4Addr::from_octets([1, 1, 1, 1])).await;
+    println!("ping elapsed: {:?}", start.elapsed());
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {

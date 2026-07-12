@@ -1,4 +1,4 @@
-use crate::{task::block_on, vga_print, vga_println};
+use crate::{vga_print, vga_println};
 use alloc::{string::String, vec::Vec};
 // OnceCell is needed isntead of lazy_static becase we need to ensure the interrupt handler does not
 // perform a heap allocation.
@@ -106,12 +106,12 @@ impl Shell {
             if let Ok(Some(key_event)) = self.keyboard.add_byte(scancode)
                 && let Some(key) = self.keyboard.process_keyevent(key_event)
             {
-                self.handle_key(key);
+                self.handle_key(key).await;
             }
         }
     }
 
-    fn handle_key(&mut self, key: DecodedKey) {
+    async fn handle_key(&mut self, key: DecodedKey) {
         match key {
             DecodedKey::RawKey(_) => {
                 // pass
@@ -119,7 +119,7 @@ impl Shell {
             DecodedKey::Unicode(character) => {
                 if character == '\n' {
                     vga_println!();
-                    Self::handle_command(self.text_buffer.as_slice());
+                    Self::handle_command(self.text_buffer.as_slice()).await;
                     self.text_buffer.clear();
                     vga_print!("\n> ");
                 } else {
@@ -130,7 +130,7 @@ impl Shell {
         }
     }
 
-    fn handle_command(command: &[char]) {
+    async fn handle_command(command: &[char]) {
         let command: String = command.iter().collect();
         match command.as_str() {
             "lspci" => {
@@ -139,7 +139,7 @@ impl Shell {
             "date" => {
                 println!("{}", crate::time::rtc::CMOS.lock().get_datetime());
             }
-            "ping" => block_on(crate::net::ping()),
+            "ping" => crate::net::ping().await,
             _ => {
                 vga_println!("Unknown command!");
             }

@@ -33,7 +33,7 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
     }
 }
 
-pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) {
+pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> Result<(), ()> {
     // Goal. Determine if a destination address is within the current subnet
     // if (mask & gateway) == (mask & destination_address)
     let on_same_subnet: bool = interface.subnet_mask & interface.gateway
@@ -44,13 +44,13 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) {
         dest_ip_for_arp = interface.gateway;
     }
 
-    let Some(dest_mac) = arp::find_target(dest_ip_for_arp, &interface).await else {
+    let Some(dest_mac) = arp::find_target(dest_ip_for_arp, interface).await else {
         log::error!(
             "Unable to send ip packet {:?} \n No mac address found. Dropping",
             packet.header
         );
 
-        return;
+        return Err(());
     };
 
     let bytes = packet.to_bytes();
@@ -61,6 +61,7 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) {
         data: bytes.as_slice(),
     };
     super::send_frame(interface, ep.into()).await;
+    Ok(())
 }
 
 // see https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
@@ -190,6 +191,7 @@ impl<'a> TryFrom<&'a [u8]> for IPv4Packet<'a> {
 
 impl<'a> IPv4Packet<'a> {
     /// Includes checksum
+    /// Returns an error if the data is bigger than the ethernet MTU.
     pub fn from_source_dest_and_data(
         source: Ipv4Addr,
         destination: Ipv4Addr,
