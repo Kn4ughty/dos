@@ -1,9 +1,7 @@
 use alloc::vec::Vec;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use crossbeam_queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
-use lazy_static::lazy_static;
 
 use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, Interface, NoSubcode};
 use crate::net::{Ipv4Addr, ip};
@@ -57,7 +55,7 @@ pub async fn handle_icmp_echo_request(
     .expect("Packet constructed incorrectly");
 
     log::trace!("Sending icmp response: {:?}", ipv4);
-    crate::net::ip::send_ipv4_packet(ipv4, interface).await;
+    let _ = crate::net::ip::send_ipv4_packet(ipv4, interface).await;
 }
 
 #[derive(Debug)]
@@ -87,7 +85,6 @@ pub fn handle_icmp_echo_response(
     header: &IPv4Header,
     _interface: &Interface,
 ) {
-    // The packet arriving should be just logged for now. In future will do better
     log::debug!(
         "received icmp response! {:?} from source: {}",
         icmpp,
@@ -111,12 +108,12 @@ const PING_RESPONSE_QUEUE_LENGTH: usize = 10;
 static PING_RESPONSE_QUEUE: Mutex<[Option<PingRequestInfo>; PING_RESPONSE_QUEUE_LENGTH]> =
     Mutex::new([const { None }; PING_RESPONSE_QUEUE_LENGTH]);
 
-struct PingRequestStream {
+struct PingResponseStream {
     /// What identifier is this streamer looking for?
     identifier: u16,
 }
 
-impl PingRequestStream {
+impl PingResponseStream {
     fn find_matching_ping_response(&self) -> Option<PingRequestInfo> {
         let mut queue = PING_RESPONSE_QUEUE.lock();
 
@@ -132,7 +129,7 @@ impl PingRequestStream {
     }
 }
 
-impl Stream for PingRequestStream {
+impl Stream for PingResponseStream {
     type Item = PingRequestInfo;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -176,11 +173,14 @@ pub async fn ping_once(target: Ipv4Addr) {
         return;
     };
 
+    let mut ping_response_stream = PingResponseStream { identifier: ident };
+
+    let sequence = 0;
+
     let mut request = ICMPPacket {
         typ: ControlMessageType::EchoRequest(NoSubcode::NoCode),
         checksum: 0,
-        // contains identifier_u16 and sequence number_u16
-        other: u32::from(ident) << 16,
+        other: (u32::from(ident) << 16) | (sequence & 0xFF_FF),
         data: b"an icmp payload yayy :3",
     };
 
@@ -194,8 +194,6 @@ pub async fn ping_once(target: Ipv4Addr) {
         return;
     };
 
-    let mut p = PingRequestStream { identifier: ident };
-
-    let response = p.next().await;
+    let response = ping_response_stream.next().await;
     log::debug!("received a response! {:?}", response);
 }
