@@ -131,15 +131,21 @@ impl Shell {
     }
 
     async fn handle_command(command: &[char]) {
-        let command: String = command.iter().collect();
-        match command.as_str() {
+        let joined: String = command.iter().collect();
+
+        let command: Vec<&str> = joined.as_str().split(' ').collect();
+
+        let program = command[0];
+        let args = &command[1..];
+
+        match program {
             "lspci" => {
                 crate::pci::lspci();
             }
             "date" => {
                 println!("{}", crate::time::rtc::CMOS.lock().get_datetime());
             }
-            "ping" => crate::net::ping().await,
+            "ping" => crate::net::ping(args).await,
             _ => {
                 vga_println!("Unknown command!");
             }

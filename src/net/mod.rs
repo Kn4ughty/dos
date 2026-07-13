@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
+    str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
 };
@@ -200,10 +201,19 @@ pub async fn loop_networking() {
     }
 }
 
-pub async fn ping() {
+pub async fn ping(args: &[&str]) {
     let start = time::Instant::now();
-    icmp::ping_once(Ipv4Addr::from_octets([192, 168, 68, 1])).await;
-    // icmp::ping_once(Ipv4Addr::from_octets([1, 1, 1, 1])).await;
+
+    let address = match Ipv4Addr::from_str(args[0]) {
+        Ok(a) => a,
+        Err(e) => {
+            println!("Could not turn arg to address: {e:?}");
+            return;
+        }
+    };
+
+    icmp::ping::ping_once(address).await;
+
     println!("ping elapsed: {:?}", start.elapsed());
 }
 

