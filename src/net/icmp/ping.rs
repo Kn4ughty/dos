@@ -74,8 +74,8 @@ impl PingRequestInfo {
         PingRequestInfo {
             source_address: header.source_address,
             dest_address: header.destination_address,
-            identifier: u16::from_le_bytes(icmpp.other.to_le_bytes()[..2].try_into().unwrap()),
-            sequence_num: u16::from_le_bytes(icmpp.other.to_le_bytes()[2..4].try_into().unwrap()),
+            sequence_num: u16::from_le_bytes(icmpp.other.to_le_bytes()[..2].try_into().unwrap()),
+            identifier: u16::from_le_bytes(icmpp.other.to_le_bytes()[2..4].try_into().unwrap()),
             payload: icmpp.data.to_vec(),
         }
     }
@@ -88,70 +88,79 @@ pub fn handle_icmp_echo_response(
     _interface: &Interface,
 ) {
     // The packet arriving should be just logged for now. In future will do better
-    log::info!(
+    log::debug!(
         "received icmp response! {:?} from source: {}",
         icmpp,
         header.source_address
     );
 
-    if PING_RESPONSE_QUEUE
-        .lock()
-        .push(PingRequestInfo::from_stuff(icmpp, header))
-        .is_err()
-    {
-        log::error!("Ping packet queue is full!");
-    } else {
-        PING_WAKER.wake();
+    for slot in PING_RESPONSE_QUEUE.lock().iter_mut() {
+        if slot.is_none() {
+            *slot = Some(PingRequestInfo::from_stuff(icmpp, header));
+            PING_WAKER.wake();
+            log::debug!("added ping response: {:?} to queue", slot);
+            return;
+        }
     }
+    log::error!("Ping packet queue is full!");
 }
 
 static PING_WAKER: AtomicWaker = AtomicWaker::new();
 
-// tihis needs to contain PingRequestInfo. But that struct has an undetermined lifetime.
-// I could either make everything inside the struct owned, or find some other way.
-// I cannot thinkg of another way so it will just be all owned which is sad.
-lazy_static! {
-    static ref PING_RESPONSE_QUEUE: Mutex<ArrayQueue<PingRequestInfo>> =
-        Mutex::new(ArrayQueue::new(10));
-}
+const PING_RESPONSE_QUEUE_LENGTH: usize = 10;
+static PING_RESPONSE_QUEUE: Mutex<[Option<PingRequestInfo>; PING_RESPONSE_QUEUE_LENGTH]> =
+    Mutex::new([const { None }; PING_RESPONSE_QUEUE_LENGTH]);
 
 struct PingRequestStream {
     /// What identifier is this streamer looking for?
     identifier: u16,
 }
 
-// this implementation has the problem that it will fill up if a ping request stream consumer is not
-// created for every outgoing ping identifier.
-// A solution to this is to implement a timeout and drop packets that are not consumed in 5 seconds
-// or something like that.
-// This implementation should also loop through *all* slots and check if any match.
-// This means that the datastructure should probably just be changed to a slice
-// A hashmap based on the identifier could also work
+impl PingRequestStream {
+    fn find_matching_ping_response(&self) -> Option<PingRequestInfo> {
+        let mut queue = PING_RESPONSE_QUEUE.lock();
+
+        for i in 0..PING_RESPONSE_QUEUE_LENGTH {
+            if let Some(p) = &queue[i]
+                && p.identifier == self.identifier
+            {
+                return queue[i].take();
+            }
+        }
+
+        None
+    }
+}
+
 impl Stream for PingRequestStream {
     type Item = PingRequestInfo;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // let queue = PING_RESPONSE_QUEUE.lock();
-
-        if let Some(packet) = PING_RESPONSE_QUEUE.lock().pop()
-            && packet.identifier == self.identifier
-        {
+        log::debug!(
+            "ping request stream poll called. looking for {:?}",
+            self.identifier
+        );
+        if let Some(packet) = self.find_matching_ping_response() {
+            log::debug!("Found in first go around");
             return Poll::Ready(Some(packet));
         }
 
+        log::debug!("ping waker registered");
         PING_WAKER.register(cx.waker());
 
-        match PING_RESPONSE_QUEUE.lock().pop() {
-            Some(packet) => {
-                if packet.identifier == self.identifier {
-                    // deregister waker
-                    PING_WAKER.take();
-                    Poll::Ready(Some(packet))
-                } else {
-                    Poll::Pending
-                }
+        if let Some(packet) = self.find_matching_ping_response() {
+            log::debug!("Found packet in ping queue: {:?}", packet);
+            if packet.identifier == self.identifier {
+                log::debug!("packet matched ident!");
+                // deregister waker
+                PING_WAKER.take();
+                Poll::Ready(Some(packet))
+            } else {
+                Poll::Pending
             }
-            None => Poll::Pending,
+        } else {
+            log::debug!("did not find matching packet in ping queue");
+            Poll::Pending
         }
     }
 }
@@ -171,8 +180,8 @@ pub async fn ping_once(target: Ipv4Addr) {
         typ: ControlMessageType::EchoRequest(NoSubcode::NoCode),
         checksum: 0,
         // contains identifier_u16 and sequence number_u16
-        other: ((ident as u32) << 16),
-        data: b"an icmp payload yayy",
+        other: u32::from(ident) << 16,
+        data: b"an icmp payload yayy :3",
     };
 
     request.calc_new_checksum();
@@ -180,7 +189,7 @@ pub async fn ping_once(target: Ipv4Addr) {
     let packet = IPv4Packet::from_source_dest_and_data(interface.ip, target, bytes.as_slice())
         .expect("icmp request is valid");
 
-    let Ok(_) = ip::send_ipv4_packet(packet, &interface).await else {
+    let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
         log::error!("could not send icmp request.");
         return;
     };
@@ -188,5 +197,5 @@ pub async fn ping_once(target: Ipv4Addr) {
     let mut p = PingRequestStream { identifier: ident };
 
     let response = p.next().await;
-    log::info!("received a response! {:?}", response);
+    log::debug!("received a response! {:?}", response);
 }
