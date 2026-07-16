@@ -43,13 +43,13 @@ pub fn find_rtl() {
                 #[expect(clippy::collapsible_if, reason = "future proofing")]
                 if let Some(header) = pci_device.get_header() {
                     if let Some(mut rtl) = RTL8139::try_new(&header) {
-                        debug!("Found rtl!");
-                        debug!("{:#?}", header);
+                        log::debug!("Found rtl!");
+                        log::debug!("{:#?}", header);
                         pci_device.enable_bus_mastering();
 
                         rtl.init();
                         // rtl.send_arp();
-                        log::info!("{:?}", rtl.get_mac());
+                        log::debug!("RTL mac address {:?}", rtl.get_mac());
                         rtl.register_interrupts(header.interrupt_line);
                         return;
                     }
