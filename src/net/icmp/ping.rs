@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::time::Duration;
@@ -68,18 +68,14 @@ pub async fn handle_icmp_echo_request(
 
 #[derive(Debug)]
 struct PingRequestInfo {
-    source_address: Ipv4Addr,
-    dest_address: Ipv4Addr,
     identifier: u16,
     sequence_num: u16,
     payload: Vec<u8>,
 }
 
 impl PingRequestInfo {
-    fn from_stuff(icmpp: &ICMPPacket<'_>, header: &IPv4Header) -> Self {
+    fn from_stuff(icmpp: &ICMPPacket<'_>) -> Self {
         PingRequestInfo {
-            source_address: header.source_address,
-            dest_address: header.destination_address,
             sequence_num: u16::from_le_bytes(icmpp.other.to_le_bytes()[..2].try_into().unwrap()),
             identifier: u16::from_le_bytes(icmpp.other.to_le_bytes()[2..4].try_into().unwrap()),
             payload: icmpp.data.to_vec(),
@@ -101,7 +97,7 @@ pub fn handle_icmp_echo_response(
 
     for slot in PING_RESPONSE_QUEUE.lock().iter_mut() {
         if slot.is_none() {
-            *slot = Some(PingRequestInfo::from_stuff(icmpp, header));
+            *slot = Some(PingRequestInfo::from_stuff(icmpp));
             PING_WAKER.wake();
             log::debug!("added ping response: {:?} to queue", slot);
             return;
@@ -110,6 +106,8 @@ pub fn handle_icmp_echo_response(
     log::error!("Ping packet queue is full!");
 }
 
+// TODO. Handle multiple ping commands at once.
+// Running a second one would overwrite the registration of this one
 static PING_WAKER: AtomicWaker = AtomicWaker::new();
 
 const PING_RESPONSE_QUEUE_LENGTH: usize = 10;
@@ -155,14 +153,9 @@ impl Stream for PingResponseStream {
 
         if let Some(packet) = self.find_matching_ping_response() {
             log::debug!("Found packet in ping queue: {:?}", packet);
-            if packet.identifier == self.identifier {
-                log::debug!("packet matched ident!");
-                // deregister waker
-                PING_WAKER.take();
-                Poll::Ready(Some(packet))
-            } else {
-                Poll::Pending
-            }
+            // deregister waker
+            PING_WAKER.take();
+            Poll::Ready(Some(packet))
         } else {
             log::debug!("did not find matching packet in ping queue");
             Poll::Pending
@@ -174,6 +167,7 @@ impl Stream for PingResponseStream {
 /// If `count` == 0, then it will ping _forever_
 /// (Since there is no way to stop a task this means it will reboot)
 /// If a target is unreachable, we dont handle that yet so it will just stop based on timeout.
+// TODO. Actually handle timeouts
 pub async fn ping(target: Ipv4Addr, count: u16) {
     log::info!("pinging target: {}", target);
 
