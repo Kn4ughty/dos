@@ -1,11 +1,19 @@
 use alloc::vec::Vec;
+use core::cell::{Cell, RefCell};
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use futures_util::{Stream, StreamExt, task::AtomicWaker};
+use core::time::Duration;
+use futures::future::FusedFuture;
+use futures::select_biased;
+use futures_util::{FutureExt, Stream, StreamExt, future, task::AtomicWaker};
+use hashbrown::HashMap;
 
 use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, Interface, NoSubcode};
 use crate::net::{Ipv4Addr, ip};
+use crate::println;
 use crate::sync::spinlock::Mutex;
+use crate::task::sleep::sleep_duration;
+use crate::time::Instant;
 
 // should this be made into a generic handle<T> ?
 pub async fn handle_icmp_echo_request(
@@ -162,38 +170,97 @@ impl Stream for PingResponseStream {
     }
 }
 
-pub async fn ping_once(target: Ipv4Addr) {
+/// Ping a target.
+/// If `count` == 0, then it will ping _forever_
+/// (Since there is no way to stop a task this means it will reboot)
+/// If a target is unreachable, we dont handle that yet so it will just stop based on timeout.
+pub async fn ping(target: Ipv4Addr, count: u16) {
     log::info!("pinging target: {}", target);
 
     #[expect(clippy::cast_possible_truncation, reason = "intended")]
     let ident = crate::time::get_ticks() as u16;
+    let payload = b"an icmp payload yayy :3";
 
-    let Some(interface) = *crate::net::INTERFACE.read().await else {
-        log::error!("Unable to load network interface.");
-        return;
+    // Packets that have not yet received a response
+    // Refcell works here because this variable is not shared between threads.
+    let outstanding_packets: RefCell<HashMap<u16, Instant>> = RefCell::new(HashMap::new());
+
+    let (done_tx, mut done_rx) = futures::channel::oneshot::channel::<()>();
+
+    let packet_sender = async || {
+        let mut sequence_num = 0;
+
+        while (sequence_num < count) && count != 0 {
+            let mut request = ICMPPacket {
+                typ: ControlMessageType::EchoRequest(NoSubcode::NoCode),
+                checksum: 0,
+                other: (u32::from(ident) << 16) | u32::from(sequence_num),
+                data: payload,
+            };
+
+            request.calc_new_checksum();
+            let bytes = request.to_bytes();
+
+            // reborrow interface so that ping doesnt break if interface settings are changed
+            // I forsee that ping being run in a loop while messing with settings is likely.
+            let Some(interface) = *crate::net::INTERFACE.read().await else {
+                log::error!("Unable to load network interface.");
+                let _ = done_tx.send(());
+                return;
+            };
+            let packet =
+                IPv4Packet::from_source_dest_and_data(interface.ip, target, bytes.as_slice())
+                    .expect("icmp request is valid");
+            let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
+                log::error!("could not send icmp request.");
+                let _ = done_tx.send(());
+                return;
+            };
+
+            outstanding_packets
+                .borrow_mut()
+                .insert(sequence_num, Instant::now());
+
+            sequence_num += 1;
+            sleep_duration(Duration::from_secs(1)).await;
+        }
+
+        let _ = done_tx.send(());
     };
 
-    let mut ping_response_stream = PingResponseStream { identifier: ident };
+    let mut collector = async || {
+        let mut ping_response_stream = PingResponseStream { identifier: ident };
+        loop {
+            if outstanding_packets.borrow().is_empty() && done_rx.is_terminated() {
+                break;
+            }
 
-    let sequence = 0;
+            select_biased! {
+                response = ping_response_stream.next().fuse() => {
+                    log::debug!("received a response! {:?}", response);
+                    if let Some(response) = response {
 
-    let mut request = ICMPPacket {
-        typ: ControlMessageType::EchoRequest(NoSubcode::NoCode),
-        checksum: 0,
-        other: (u32::from(ident) << 16) | (sequence & 0xFF_FF),
-        data: b"an icmp payload yayy :3",
+                        let Some(packet_send_time) = outstanding_packets
+                            .borrow_mut()
+                            .remove(&response.sequence_num)
+                            else {
+                                log::warn!("Ping target sent back a response with a sequence_num that wasnt sent. That is weird");
+                                continue;
+                        };
+
+                        if response.payload != payload {
+                            println!("WARN. Received packet was corrupted: expected: {:?}. received: {:?}", payload, response.payload);
+                        }
+
+                        println!("seq={}, time={:?}", response.sequence_num, packet_send_time.elapsed());
+                    }
+                }
+                _ = done_rx => {
+                    // The sender finished. Loop back and check real exit condition
+                }
+            }
+        }
     };
 
-    request.calc_new_checksum();
-    let bytes = request.to_bytes();
-    let packet = IPv4Packet::from_source_dest_and_data(interface.ip, target, bytes.as_slice())
-        .expect("icmp request is valid");
-
-    let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
-        log::error!("could not send icmp request.");
-        return;
-    };
-
-    let response = ping_response_stream.next().await;
-    log::debug!("received a response! {:?}", response);
+    let _ = future::join(packet_sender(), collector()).await;
 }

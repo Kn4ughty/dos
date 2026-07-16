@@ -212,7 +212,7 @@ pub async fn ping(args: &[&str]) {
         }
     };
 
-    icmp::ping::ping_once(address).await;
+    icmp::ping::ping(address, 5).await;
 
     println!("ping elapsed: {:?}", start.elapsed());
 }
