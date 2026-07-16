@@ -1,4 +1,4 @@
-use crate::time::{get_ticks, register_waker};
+use crate::time::{get_ticks, register_waker_absolute};
 use core::{
     future::Future,
     pin::Pin,
@@ -31,7 +31,7 @@ impl Future for SleepFuture {
         }
 
         if !self.registered {
-            register_waker(self.target_tick, cx.waker().clone());
+            register_waker_absolute(self.target_tick, cx.waker().clone());
             self.registered = true;
         }
         Poll::Pending

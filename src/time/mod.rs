@@ -68,12 +68,9 @@ impl TimerWakerList {
     }
 }
 
-pub fn register_waker(sleep_ms: u64, waker: Waker) {
+pub fn register_waker_absolute(target_tick: u64, waker: Waker) {
     without_interrupts(|| {
-        let target_tick = get_ticks() + sleep_ms;
-        let mut wakers = TIMER_WAKERS.lock();
-
-        wakers.push(TimeWaker { target_tick, waker });
+        TIMER_WAKERS.lock().push(TimeWaker { target_tick, waker });
     });
 }
 
