@@ -1,10 +1,11 @@
 use crate::time::{get_ticks, register_waker_absolute};
 use core::{
-    future::Future,
+    future::{Future, pending},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
+use futures_util::future::Either;
 
 pub struct SleepFuture {
     target_tick: u64,
@@ -19,6 +20,13 @@ pub fn sleep_duration(duration: Duration) -> SleepFuture {
     SleepFuture {
         target_tick: get_ticks() + ms_count,
         registered: false,
+    }
+}
+
+pub fn maybe_sleep(duration: Option<Duration>) -> impl Future<Output = ()> {
+    match duration {
+        Some(d) => Either::Left(sleep_duration(d)),
+        None => Either::Right(pending()),
     }
 }
 

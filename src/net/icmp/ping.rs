@@ -9,10 +9,11 @@ use futures_util::{FutureExt, Stream, StreamExt, future, task::AtomicWaker};
 use hashbrown::HashMap;
 
 use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, Interface, NoSubcode};
+use crate::net::icmp::PACKET_TIMEOUT_DURATION;
 use crate::net::{Ipv4Addr, ip};
 use crate::println;
 use crate::sync::spinlock::Mutex;
-use crate::task::sleep::sleep_duration;
+use crate::task::sleep;
 use crate::time::Instant;
 
 // should this be made into a generic handle<T> ?
@@ -177,6 +178,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
 
     // Packets that have not yet received a response
     // Refcell works here because this variable is not shared between threads.
+    // Holds the sequence num of a packet, and the time it was sent at.
     let outstanding_packets: RefCell<HashMap<u16, Instant>> = RefCell::new(HashMap::new());
 
     let (done_tx, mut done_rx) = futures::channel::oneshot::channel::<()>();
@@ -216,7 +218,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                 .insert(sequence_num, Instant::now());
 
             sequence_num += 1;
-            sleep_duration(Duration::from_secs(1)).await;
+            sleep::sleep_duration(Duration::from_secs(1)).await;
         }
 
         let _ = done_tx.send(());
@@ -228,6 +230,12 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
             if outstanding_packets.borrow().is_empty() && done_rx.is_terminated() {
                 break;
             }
+
+            let next_deadline = outstanding_packets
+                .borrow()
+                .values()
+                .map(|sent| PACKET_TIMEOUT_DURATION.saturating_sub(sent.elapsed()))
+                .min();
 
             select_biased! {
                 response = ping_response_stream.next().fuse() => {
@@ -251,6 +259,18 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                 }
                 _ = done_rx => {
                     // The sender finished. Loop back and check real exit condition
+                }
+                () = sleep::maybe_sleep(next_deadline).fuse() => {
+                    // omg a packet timed out. Need to find which one/s
+                    let mut packets = outstanding_packets.borrow_mut();
+                    packets.retain(|sequence_num, send_time| {
+                        let expired = send_time.elapsed() > PACKET_TIMEOUT_DURATION;
+                        if expired {
+                            println!("seq={} timed out", sequence_num);
+                        }
+                        !expired
+                    });
+
                 }
             }
         }

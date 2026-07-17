@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use alloc::{vec, vec::Vec};
 use log::debug;
 
@@ -11,6 +13,8 @@ use crate::{
     },
     tryfrom::{TryFrom2argAndReverse, tryfrom},
 };
+
+const PACKET_TIMEOUT_DURATION: Duration = Duration::from_secs(10);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ICMPPacket<'a> {
