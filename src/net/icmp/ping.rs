@@ -10,7 +10,7 @@ use hashbrown::HashMap;
 
 use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, Interface, NoSubcode};
 use crate::net::icmp::PACKET_TIMEOUT_DURATION;
-use crate::net::{Ipv4Addr, ip};
+use crate::net::{Ipv4Addr, ip, ones_complement_checksum};
 use crate::println;
 use crate::sync::spinlock::Mutex;
 use crate::task::sleep;
@@ -53,7 +53,13 @@ pub async fn handle_icmp_echo_request(
         data: icmpp.data,
     };
 
-    response.calc_new_checksum();
+    response.checksum = response.calc_checksum();
+
+    debug_assert_eq!(
+        ones_complement_checksum(response.to_bytes().as_slice()),
+        0,
+        "checksum with self should be 0"
+    );
 
     let resp_bytes = response.to_bytes();
     let ipv4 = IPv4Packet::from_source_dest_and_data(
@@ -168,7 +174,6 @@ impl Stream for PingResponseStream {
 /// If `count` == 0, then it will ping _forever_
 /// (Since there is no way to stop a task this means it will reboot)
 /// If a target is unreachable, we dont handle that yet so it will just stop based on timeout.
-// TODO. Actually handle timeouts
 pub async fn ping(target: Ipv4Addr, count: u16) {
     log::info!("pinging target: {}", target);
 
@@ -194,7 +199,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                 data: payload,
             };
 
-            request.calc_new_checksum();
+            request.checksum = request.calc_checksum();
             let bytes = request.to_bytes();
 
             // reborrow interface so that ping doesnt break if interface settings are changed
@@ -253,6 +258,8 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                         if response.payload != payload {
                             println!("WARN. Received packet was corrupted: expected: {:?}. received: {:?}", payload, response.payload);
                         }
+                        // TODO. Also check the checksum
+                        // That requires some refactoring...
 
                         println!("seq={}, time={:?}", response.sequence_num, packet_send_time.elapsed());
                     }
@@ -270,7 +277,6 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                         }
                         !expired
                     });
-
                 }
             }
         }

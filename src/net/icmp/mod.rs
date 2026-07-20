@@ -64,23 +64,18 @@ impl<'a> TryFrom<&'a [u8]> for ICMPPacket<'a> {
 
 impl ICMPPacket<'_> {
     /// Replaces the checksum of self with a correct one
-    pub fn calc_new_checksum(&mut self) {
+    #[must_use]
+    pub fn calc_checksum(&mut self) -> u16 {
         self.checksum = 0;
         let bytes = self.to_bytes();
-        self.checksum = ones_complement_checksum(bytes.as_slice());
-
-        debug_assert_eq!(
-            ones_complement_checksum(self.to_bytes().as_slice()),
-            0,
-            "checksum with self should be 0"
-        );
+        ones_complement_checksum(bytes.as_slice())
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![0u8; self.total_len()];
         buf[0] = self.typ.outer_as();
         buf[1] = self.typ.inner_as();
-        buf[2..=3].copy_from_slice(&self.checksum.to_be_bytes());
+        buf[2..4].copy_from_slice(&self.checksum.to_be_bytes());
         buf[4..8].copy_from_slice(&self.other.to_be_bytes());
         buf[8..self.total_len()].copy_from_slice(self.data);
 
