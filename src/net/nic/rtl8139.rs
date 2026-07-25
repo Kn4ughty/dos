@@ -386,8 +386,8 @@ impl EthernetDevice for RTL8139 {
                 .unwrap(),
         ) as usize;
 
-        // We alloate a new vec, if we just pass around a refence to the data,
-        // then that can be modified by harder at any moment! That would be very bad.
+        // We allocate a new vec bc if we just pass around a reference to the data,
+        // then that could be modified by hardware at any moment! That would be very bad.
         let out = self.rx_buf.buf[(offset + 4)..(offset + pkt_length)].to_vec();
 
         // We must advance capr to tell hardware we are done with this region of buffer
