@@ -22,10 +22,7 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
             use super::icmp;
             icmp::handle_icmp(packet, interface).await;
         }
-        IPProtocol::Tcp => {
-            socket::handle_incoming_packet(packet, interface);
-        }
-        IPProtocol::Udp => {
+        IPProtocol::Udp | IPProtocol::Tcp => {
             socket::handle_incoming_packet(packet, interface);
         }
     }

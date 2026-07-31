@@ -1,8 +1,6 @@
 use super::socket::Port;
 use alloc::vec::Vec;
 
-use super::ones_complement_checksum;
-
 #[derive(Clone, Copy, Debug)]
 pub struct UdpPacketHeader {
     pub src_port: Port,
@@ -54,22 +52,14 @@ impl<'a> UdpPacket<'a> {
         UdpPacket { header, data }
     }
 
-    /// Includes checksum calculation
-    // pub fn calc_checksum(&self) -> u16 {
-    //     // this is slow :(
-    //     ones_complement_checksum(self.to_bytes().as_slice())
-    // }
     pub fn to_bytes(&self) -> Vec<u8> {
         // Header is 8 bytes
         let mut joined: Vec<u8> = Vec::with_capacity(8 + self.data.len());
         joined.extend_from_slice(&self.header.to_bytes());
         joined.extend_from_slice(self.data);
 
-        // recalcuate checksum
-        // let checksum = ones_complement_checksum(joined.as_slice());
-        // let check_bytes = checksum.to_le_bytes();
-        // joined[6] = check_bytes[0];
-        // joined[7] = check_bytes[1];
+        // checksum is not calculated because it is optional and easier
+
         joined
     }
 }

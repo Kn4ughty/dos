@@ -17,7 +17,7 @@ use super::{IPv4Packet, Interface};
 use crate::net::udp::UdpPacketHeader;
 use crate::sync::spinlock::Mutex;
 
-// uhh these statics can be merged but doing this for now
+// uhh these statics can be merged but doing this for now. TODO fix it
 
 lazy_static! {
     // using spinlock here may cause problems with preemptive multitasking but is fine for now
@@ -31,6 +31,12 @@ lazy_static! {
     static ref SOCKET_RESPONSE_QUEUE: Mutex<HashMap<Port, ArrayQueue<SocketResponse>>> =
         Mutex::new(HashMap::new());
 }
+
+// pub struct SocketRegistration {
+//     waker: AtomicWaker,
+//     incoming_queue: ArrayQueue<SocketResponse>,
+//     binding_address: Ipv4Addr,
+// }
 
 pub fn handle_incoming_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
     // packket header already validated to be tcp or udp
@@ -80,7 +86,6 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
         .get(&dst_port)
         .expect("state erorr fixme with better error message")
         .wake();
-    // uhh good now? hope so :3
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -98,8 +103,9 @@ pub enum SocketError {
 }
 
 pub enum SocketProtocol {
-    TCP,
-    UDP,
+    #[expect(unused)]
+    Tcp,
+    Udp,
 }
 
 // If the user has a handle, that means they are the effective owner of that port, and all traffic
@@ -110,7 +116,6 @@ pub enum SocketProtocol {
 /// Held by a user to indicate that they have ownership over the send/recv of a specfic port
 pub struct SocketHandle {
     port: Port,
-    bound_address: Ipv4Addr,
     typ: SocketProtocol,
 }
 
@@ -134,8 +139,7 @@ impl SocketHandle {
 
         Ok(SocketHandle {
             port,
-            bound_address: binding_address,
-            typ: SocketProtocol::UDP,
+            typ: SocketProtocol::Udp,
         })
     }
 
@@ -148,12 +152,12 @@ impl SocketHandle {
         interface: Interface,
     ) -> Result<(), ()> {
         let transport_packet = match &self.typ {
-            SocketProtocol::UDP => {
+            SocketProtocol::Udp => {
                 let udp_packet = UdpPacket::new(self.port, dest_port, data);
 
                 udp_packet.to_bytes()
             }
-            SocketProtocol::TCP => {
+            SocketProtocol::Tcp => {
                 todo!("TCP support not yet implemented")
             }
         };
@@ -161,7 +165,10 @@ impl SocketHandle {
         let Ok(packet) = IPv4Packet::from_source_dest_and_data(
             interface.ip,
             dest_ip,
-            IPProtocol::Udp, // FIXME
+            match self.typ {
+                SocketProtocol::Udp => IPProtocol::Udp,
+                SocketProtocol::Tcp => IPProtocol::Tcp,
+            },
             transport_packet.as_slice(),
         ) else {
             log::error!("Unable to create ipv4packet");
