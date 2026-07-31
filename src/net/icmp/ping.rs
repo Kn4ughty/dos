@@ -65,6 +65,7 @@ pub async fn handle_icmp_echo_request(
     let ipv4 = IPv4Packet::from_source_dest_and_data(
         interface.ip,
         header.source_address,
+        ip::IPProtocol::Icmp,
         resp_bytes.as_slice(),
     )
     .expect("Packet constructed incorrectly");
@@ -209,9 +210,13 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                 let _ = done_tx.send(());
                 return;
             };
-            let packet =
-                IPv4Packet::from_source_dest_and_data(interface.ip, target, bytes.as_slice())
-                    .expect("icmp request is valid");
+            let packet = IPv4Packet::from_source_dest_and_data(
+                interface.ip,
+                target,
+                ip::IPProtocol::Icmp,
+                bytes.as_slice(),
+            )
+            .expect("icmp request is valid");
             let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
                 log::error!("could not send icmp request.");
                 let _ = done_tx.send(());

@@ -146,6 +146,7 @@ impl Shell {
                 println!("{}", crate::time::rtc::CMOS.lock().get_datetime());
             }
             "ping" => crate::net::ping(args).await,
+            "ncu" => crate::net::ncu(args).await,
             _ => {
                 vga_println!("Unknown command!");
             }

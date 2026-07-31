@@ -7,7 +7,7 @@ use core::{
 };
 use log::trace;
 
-use super::{Interface, ones_complement_checksum};
+use super::{Interface, ones_complement_checksum, socket};
 
 pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);
@@ -23,12 +23,10 @@ pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
             icmp::handle_icmp(packet, interface).await;
         }
         IPProtocol::Tcp => {
-            // todo
-            trace!("Ignoring TCP packet");
+            socket::handle_incoming_packet(packet, interface);
         }
         IPProtocol::Udp => {
-            // todo
-            trace!("Ignoring UDP packet");
+            socket::handle_incoming_packet(packet, interface);
         }
     }
 }
@@ -101,7 +99,7 @@ pub struct IPv4Header {
 
     /// 8 bit protocol. Defines the next level protocol.
     /// See <https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers>
-    protocol: IPProtocol,
+    pub protocol: IPProtocol,
 
     /// 16 bit one's complement of all the 16 bit words in the header.
     header_checksum: u16,
@@ -195,6 +193,7 @@ impl<'a> IPv4Packet<'a> {
     pub fn from_source_dest_and_data(
         source: Ipv4Addr,
         destination: Ipv4Addr,
+        protocol: IPProtocol,
         data: &'a [u8],
     ) -> Result<IPv4Packet<'a>, IpError> {
         let total_len = u16::try_from(20 + data.len()).map_err(|_| IpError::DataTooLong)?;
@@ -219,7 +218,7 @@ impl<'a> IPv4Packet<'a> {
                 flags: IPv4Flags::DF,
                 fragment_offset: 0,
                 ttl: 20,
-                protocol: IPProtocol::Icmp,
+                protocol,
                 header_checksum: 0,
                 source_address: source,
                 destination_address: destination,

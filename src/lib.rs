@@ -1,6 +1,8 @@
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
+// TODO update rust version so featrure flag isnt needed
+#![feature(string_from_utf8_lossy_owned)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
@@ -14,6 +16,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::new_without_default)]
+#![allow(clippy::match_wildcard_for_single_variants)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,

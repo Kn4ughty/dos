@@ -1,12 +1,14 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
     str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
+    time::Duration,
 };
 use crossbeam_queue::ArrayQueue;
+use futures::future::{Either, select};
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use log::{debug, error, trace, warn};
 use no_std_async::RwLock;
@@ -15,7 +17,7 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::{
     net::{ethernet::EtherType, ip::IPv4Packet},
     println,
-    task::block_on,
+    task::{block_on, sleep::sleep_duration},
     time,
 };
 
@@ -225,6 +227,11 @@ pub async fn ping(args: &[&str]) {
 }
 
 pub async fn ncu(args: &[&str]) {
+    if args.len() < 2 {
+        println!("too few args");
+        return;
+    }
+
     let destination = match Ipv4Addr::from_str(args[0]) {
         Ok(a) => a,
         Err(e) => {
@@ -239,7 +246,8 @@ pub async fn ncu(args: &[&str]) {
             println!("Invalid port: {e:?}");
             return;
         }
-    };
+    }
+    .into();
 
     let Some(interface) = *crate::net::INTERFACE.read().await else {
         log::error!("Unable to load network interface.");
@@ -247,20 +255,35 @@ pub async fn ncu(args: &[&str]) {
     };
 
     // TODO. Generate random num for source port
-    let udp_packet = udp::UdpPacket::new(6789.into(), dst_port.into(), &[]);
-    let udp_bytes = udp_packet.to_bytes();
+    let Ok(mut handle) = socket::SocketHandle::new(13.into(), interface.ip) else {
+        log::error!("Could not obtain handle to port");
+        return;
+    };
 
-    let Ok(packet) =
-        IPv4Packet::from_source_dest_and_data(interface.ip, destination, udp_bytes.as_slice())
+    let Ok(()) = handle
+        .send_data(destination, dst_port, &[], interface)
+        .await
     else {
-        log::error!("Unable to create ipv4packet");
+        log::error!("could not send data");
         return;
     };
 
-    let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
-        log::error!("Error sending ip packet");
-        return;
-    };
+    log::info!("sent data");
+
+    let response = select(handle.next(), sleep_duration(Duration::from_secs(5))).await;
+
+    match response {
+        Either::Left((response, _)) => {
+            let response = response.unwrap();
+            let s = String::from_utf8_lossy_owned(response.data);
+            println!("{:?}", s);
+        }
+        Either::Right(_) => {
+            println!("timeout");
+        }
+    }
+
+    // let response = .await.expect("Socket should not close");
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {
