@@ -1,10 +1,17 @@
 use alloc::vec::Vec;
-use core::net::Ipv4Addr;
 
-use super::{Interface, ones_complement_checksum};
+use super::ones_complement_checksum;
 
+#[derive(Clone, Copy, Debug)]
 pub struct Port(u16);
 
+impl From<u16> for Port {
+    fn from(value: u16) -> Self {
+        Port(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 struct UdpPacketHeader {
     src_port: Port,
     dst_port: Port,
@@ -30,13 +37,9 @@ impl UdpPacketHeader {
 }
 
 impl<'a> UdpPacket<'a> {
-    pub fn new(
-        _dst_ip: Ipv4Addr,
-        src_port: Port,
-        dst_port: Port,
-        data: &'a [u8],
-        _interface: Interface,
-    ) -> Self {
+    /// Creates a new udp packet with checksum set to 0
+    #[must_use]
+    pub fn new(src_port: Port, dst_port: Port, data: &'a [u8]) -> Self {
         let header = UdpPacketHeader {
             src_port,
             dst_port,
@@ -44,19 +47,21 @@ impl<'a> UdpPacket<'a> {
             checksum: 0,
         };
 
-        // let mut full_header = [0u8; 20];
-        // full_header[0..4].copy_from_slice(&src_ip.to_bits().to_be_bytes());
-        // full_header[4..8].copy_from_slice(&dst_ip.to_bits().to_be_bytes());
-        // full_header[9] = super::ip::IPProtocol::Udp as u8;
-        // full_header[10..12].copy_from_slice(&data.len().to_be_bytes());
-        // full_header[12..20].copy_from_slice(&header.to_bytes());
-        //
-        // let mut full = [0u8; 20 + data.len()];
-        // full[0..20].copy_from_slice(&full_header);
-        // full[20..].copy_from_slice(&data);
-        //
-        // ones_complement_checksum(full_header);
-        //
         UdpPacket { header, data }
+    }
+
+    /// Includes checksum calculation
+    pub fn to_bytes(&self) -> Vec<u8> {
+        // Header is 8 bytes
+        let mut joined: Vec<u8> = Vec::with_capacity(8 + self.data.len());
+        joined.extend_from_slice(&self.header.to_bytes());
+        joined.extend_from_slice(self.data);
+
+        // recalcuate checksum
+        let checksum = ones_complement_checksum(joined.as_slice());
+        let check_bytes = checksum.to_le_bytes();
+        joined[6] = check_bytes[0];
+        joined[7] = check_bytes[1];
+        joined
     }
 }

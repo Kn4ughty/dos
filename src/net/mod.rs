@@ -12,13 +12,20 @@ use log::{debug, error, trace, warn};
 use no_std_async::RwLock;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{net::ethernet::EtherType, println, task::block_on, time};
+use crate::{
+    net::{ethernet::EtherType, ip::IPv4Packet},
+    println,
+    task::block_on,
+    time,
+};
 
 mod arp;
 mod ethernet;
 mod icmp;
 mod ip;
 mod nic;
+mod socket;
+mod udp;
 
 use ethernet::{EthernetFrame, EthernetPacket};
 
@@ -215,6 +222,45 @@ pub async fn ping(args: &[&str]) {
     icmp::ping::ping(address, 5).await;
 
     println!("ping elapsed: {:?}", start.elapsed());
+}
+
+pub async fn ncu(args: &[&str]) {
+    let destination = match Ipv4Addr::from_str(args[0]) {
+        Ok(a) => a,
+        Err(e) => {
+            println!("Could not turn arg to address: {e:?}");
+            return;
+        }
+    };
+
+    let dst_port = match u16::from_str(args[1]) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("Invalid port: {e:?}");
+            return;
+        }
+    };
+
+    let Some(interface) = *crate::net::INTERFACE.read().await else {
+        log::error!("Unable to load network interface.");
+        return;
+    };
+
+    // TODO. Generate random num for source port
+    let udp_packet = udp::UdpPacket::new(6789.into(), dst_port.into(), &[]);
+    let udp_bytes = udp_packet.to_bytes();
+
+    let Ok(packet) =
+        IPv4Packet::from_source_dest_and_data(interface.ip, destination, udp_bytes.as_slice())
+    else {
+        log::error!("Unable to create ipv4packet");
+        return;
+    };
+
+    let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
+        log::error!("Error sending ip packet");
+        return;
+    };
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {
