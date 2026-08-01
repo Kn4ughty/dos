@@ -38,7 +38,7 @@ lazy_static! {
 //     binding_address: Ipv4Addr,
 // }
 
-pub fn handle_incoming_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
+pub fn handle_incoming_packet(packet: &IPv4Packet<'_>, _interface: &Interface) {
     // packket header already validated to be tcp or udp
     // Either way just need to get port and then put into appropriate queue
 

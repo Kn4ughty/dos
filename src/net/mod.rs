@@ -1,5 +1,4 @@
 use alloc::{string::String, vec::Vec};
-use conquer_once::spin::OnceCell;
 use core::{
     net::Ipv4Addr,
     str::FromStr,
@@ -10,13 +9,15 @@ use core::{
 use crossbeam_queue::ArrayQueue;
 use futures::future::{Either, select};
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
-use log::{debug, error, trace, warn};
+use lazy_static::lazy_static;
+use log::{debug, trace, warn};
 use no_std_async::RwLock;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
     net::{ethernet::EtherType, ip::IPv4Packet},
     println,
+    sync::spinlock::Mutex,
     task::{block_on, sleep::sleep_duration},
     time,
 };
@@ -32,7 +33,10 @@ mod udp;
 use ethernet::{EthernetFrame, EthernetPacket};
 
 const PACKET_QUEUE_SIZE: usize = 16;
-static PACKET_QUEUE: OnceCell<ArrayQueue<Vec<u8>>> = OnceCell::uninit();
+lazy_static! {
+    static ref PACKET_QUEUE: Mutex<ArrayQueue<Vec<u8>>> =
+        Mutex::new(ArrayQueue::new(PACKET_QUEUE_SIZE));
+}
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 // The interface needs to be mutable. It could be a onceCell, but adding nic
@@ -79,9 +83,6 @@ impl WhichInterface {
 
 pub fn init() {
     log::debug!("Network init");
-    PACKET_QUEUE
-        .try_init_once(|| ArrayQueue::new(PACKET_QUEUE_SIZE))
-        .expect("packet queue already init");
     nic::rtl8139::find_rtl();
 
     let intf = Interface {
@@ -109,9 +110,16 @@ fn notify_tx_complete() {
     TX_WAKER.wake();
 }
 
-async fn send_frame(interface: &Interface, frame: EthernetFrame) {
+async fn send_frame(interface: &Interface, frame: EthernetFrame, is_loopback: bool) {
     TX_COMPLETE.store(false, Ordering::Release);
-    without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
+
+    if is_loopback {
+        if let Err(e) = PACKET_QUEUE.lock().push(frame.as_bytes().to_vec()) {
+            log::error!("Failed put loopback packet into queue. Dropping. e: {e:?}");
+        }
+    } else {
+        without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
+    }
 
     futures_util::future::poll_fn(|cx| {
         if TX_COMPLETE.load(Ordering::Acquire) {
@@ -129,10 +137,7 @@ async fn send_frame(interface: &Interface, frame: EthernetFrame) {
 }
 
 fn push_packet(packet: Vec<u8>) {
-    let Ok(queue) = PACKET_QUEUE.try_get() else {
-        error!("Packet queue not initialised. Dropping packet");
-        return;
-    };
+    let queue = PACKET_QUEUE.lock();
 
     if queue.push(packet).is_ok() {
         WAKER.wake();
@@ -152,9 +157,7 @@ impl Stream for NetworkStream {
     ) -> Poll<Option<Self::Item>> {
         trace!("Poll for NetworkStream called");
 
-        let queue = PACKET_QUEUE
-            .try_get()
-            .expect("packet queue not initialised!");
+        let queue = PACKET_QUEUE.lock();
 
         if let Some(packet) = queue.pop() {
             return Poll::Ready(Some(packet));

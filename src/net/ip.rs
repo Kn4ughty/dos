@@ -55,7 +55,12 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> 
         typ: ethernet::EtherType::IPv4,
         data: bytes.as_slice(),
     };
-    super::send_frame(interface, ep.into()).await;
+
+    let is_loopback = packet.header.destination_address == interface.ip
+        || packet.header.destination_address.is_loopback();
+
+    super::send_frame(interface, ep.into(), is_loopback).await;
+
     Ok(())
 }
 

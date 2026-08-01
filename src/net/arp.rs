@@ -78,7 +78,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
                 data: &arp_bytes,
             };
 
-            super::send_frame(interface, ep.into()).await;
+            super::send_frame(interface, ep.into(), false).await;
         }
         2 => {
             // received a reply
@@ -124,7 +124,7 @@ async fn send_arp_request(target: Ipv4Addr, interface: &Interface) {
         data: &ap_bytes,
     };
 
-    super::send_frame(interface, ep.into()).await;
+    super::send_frame(interface, ep.into(), false).await;
 }
 
 pub enum ArpError {
