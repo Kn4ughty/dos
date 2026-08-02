@@ -11,8 +11,10 @@ use super::{Interface, ones_complement_checksum, socket};
 
 pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);
-    // TODO handle more ip's like loopback
-    if packet.header.destination_address != interface.ip {
+
+    if packet.header.destination_address != interface.ip
+        && !packet.header.destination_address.is_loopback()
+    {
         return;
     }
     trace!("Decided to handle packet");
@@ -34,8 +36,11 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> 
     let on_same_subnet: bool = interface.subnet_mask & interface.gateway
         == interface.subnet_mask & packet.header.destination_address;
 
+    let is_loopback = packet.header.destination_address == interface.ip
+        || packet.header.destination_address.is_loopback();
+
     let mut dest_ip_for_arp = packet.header.destination_address;
-    if !on_same_subnet {
+    if !on_same_subnet && !is_loopback {
         dest_ip_for_arp = interface.gateway;
     }
 
@@ -47,6 +52,7 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> 
 
         return Err(());
     };
+    log::debug!("found mac for target: {:?}", dest_mac);
 
     let bytes = packet.to_bytes();
     let ep = ethernet::EthernetPacket {
@@ -56,10 +62,9 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> 
         data: bytes.as_slice(),
     };
 
-    let is_loopback = packet.header.destination_address == interface.ip
-        || packet.header.destination_address.is_loopback();
-
+    log::trace!("sending ip packet. is_loopback? {}", is_loopback);
     super::send_frame(interface, ep.into(), is_loopback).await;
+    log::trace!("finished sending frame");
 
     Ok(())
 }

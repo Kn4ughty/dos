@@ -94,6 +94,11 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
 #[must_use]
 pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddress> {
     log::debug!("finding arp target: {:?}", ip);
+    if ip == interface.ip || ip.is_loopback() {
+        log::trace!("ip was loopback or was self. Returning interface mac");
+        return Some(interface.mac);
+    }
+
     if let Some(ip) = ARP_TABLE.lock().get(&ip) {
         return Some(*ip);
     }

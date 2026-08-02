@@ -27,7 +27,7 @@ mod ethernet;
 mod icmp;
 mod ip;
 mod nic;
-mod socket;
+pub mod socket;
 mod udp;
 
 use ethernet::{EthernetFrame, EthernetPacket};
@@ -39,17 +39,20 @@ lazy_static! {
 }
 static WAKER: AtomicWaker = AtomicWaker::new();
 
+// todo. remove port abstraction. just let it be a u16
+
 // The interface needs to be mutable. It could be a onceCell, but adding nic
 // is adding interfaces at runtime something i need? mmm yeah cause stuff can be unplugged.
 // that only applies to usb devices though.
 // The interface needs to allow multiple reads at once.
 // That means that a RwLock needs to be used.
 // Using a mutex for now
-static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
+pub static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
 
 /// Contains data about a network connection, but does not actually hold the nic
+/// TODO. Fix socket implementation so interface can be private
 #[derive(Clone, Copy)]
-struct Interface {
+pub struct Interface {
     mac: ethernet::MacAddress,
     ip: Ipv4Addr,
     gateway: Ipv4Addr,
@@ -114,12 +117,10 @@ async fn send_frame(interface: &Interface, frame: EthernetFrame, is_loopback: bo
     TX_COMPLETE.store(false, Ordering::Release);
 
     if is_loopback {
-        if let Err(e) = PACKET_QUEUE.lock().push(frame.as_bytes().to_vec()) {
-            log::error!("Failed put loopback packet into queue. Dropping. e: {e:?}");
-        }
-    } else {
-        without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
+        push_packet(frame.as_bytes().to_vec());
+        return;
     }
+    without_interrupts(|| interface.which.with_device(|dev| dev.send_packet(&frame)));
 
     futures_util::future::poll_fn(|cx| {
         if TX_COMPLETE.load(Ordering::Acquire) {
@@ -167,9 +168,13 @@ impl Stream for NetworkStream {
         match queue.pop() {
             Some(packet) => {
                 WAKER.take();
+                log::trace!("Networkstream woken and packet was returned");
                 Poll::Ready(Some(packet))
             }
-            None => Poll::Pending,
+            None => {
+                log::trace!("Network stream woken but no packet in queue");
+                Poll::Pending
+            }
         }
     }
 }
