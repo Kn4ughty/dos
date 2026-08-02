@@ -47,7 +47,15 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 // The interface needs to allow multiple reads at once.
 // That means that a RwLock needs to be used.
 // Using a mutex for now
-pub static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
+static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
+
+pub async fn current_interface() -> Option<Interface> {
+    let Some(interface) = *crate::net::INTERFACE.read().await else {
+        log::error!("Unable to load network interface.");
+        return None;
+    };
+    Some(interface)
+}
 
 /// Contains data about a network connection, but does not actually hold the nic
 /// TODO. Fix socket implementation so interface can be private
@@ -254,8 +262,7 @@ pub async fn ncu(args: &[&str]) {
     }
     .into();
 
-    let Some(interface) = *crate::net::INTERFACE.read().await else {
-        log::error!("Unable to load network interface.");
+    let Some(interface) = current_interface().await else {
         return;
     };
 
@@ -287,8 +294,6 @@ pub async fn ncu(args: &[&str]) {
             println!("timeout");
         }
     }
-
-    // let response = .await.expect("Socket should not close");
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {

@@ -1,6 +1,7 @@
 use crate::net::Interface;
 use crate::net::ethernet::{EtherType, EthernetPacket};
 use crate::sync::spinlock::Mutex;
+use alloc::vec::Vec;
 use core::convert::TryInto;
 use core::net::Ipv4Addr;
 use core::pin::{Pin, pin};
@@ -14,19 +15,21 @@ use futures_util::future::{Either, select};
 
 use super::ethernet::MacAddress;
 
-lazy_static! {
-    pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
-}
+// A short timeout is fine since this will only apply inside a subnet
+const ARP_TIMEOUT_DURATION: Duration = Duration::from_secs(1);
 
 lazy_static! {
-    static ref ARP_WAITERS: Mutex<HashMap<Ipv4Addr, Waker>> = Mutex::new(HashMap::new());
+    pub static ref ARP_TABLE: Mutex<HashMap<Ipv4Addr, MacAddress>> = Mutex::new(HashMap::new());
+    static ref ARP_WAITERS: Mutex<HashMap<Ipv4Addr, Vec<Waker>>> = Mutex::new(HashMap::new());
 }
 
 fn update_table(ip: Ipv4Addr, mac: MacAddress) {
     ARP_TABLE.lock().insert(ip, mac);
 
-    if let Some(waker) = ARP_WAITERS.lock().remove(&ip) {
-        waker.wake();
+    if let Some(wakers) = ARP_WAITERS.lock().remove(&ip) {
+        for waker in wakers {
+            waker.wake();
+        }
     }
 }
 
@@ -42,7 +45,17 @@ impl Future for ArpNotifyFuture {
             return Poll::Ready(*mac);
         }
 
-        ARP_WAITERS.lock().insert(self.ip, cx.waker().clone());
+        let mut waiters = ARP_WAITERS.lock();
+        let entry = waiters.entry(self.ip).or_default();
+
+        // find the entry that wakes self
+        if let Some(waiter) = entry.iter_mut().find(|w| w.will_wake(cx.waker())) {
+            *waiter = cx.waker().clone();
+        } else {
+            // We are not in the waiting list yet
+            entry.push(cx.waker().clone());
+        }
+
         Poll::Pending
     }
 }
@@ -106,7 +119,7 @@ pub async fn find_target(ip: Ipv4Addr, interface: &Interface) -> Option<MacAddre
     send_arp_request(ip, interface).await;
 
     let notify = pin!(ArpNotifyFuture { ip });
-    let timeout = pin!(crate::task::sleep::sleep_duration(Duration::from_secs(1)));
+    let timeout = pin!(crate::task::sleep::sleep_duration(ARP_TIMEOUT_DURATION));
 
     match select(notify, timeout).await {
         Either::Left((mac, _)) => Some(mac),

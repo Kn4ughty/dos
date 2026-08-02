@@ -17,6 +17,7 @@
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::match_wildcard_for_single_variants)]
+#![allow(clippy::assigning_clones)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,

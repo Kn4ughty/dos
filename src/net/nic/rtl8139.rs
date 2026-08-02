@@ -48,7 +48,6 @@ pub fn find_rtl() {
                         pci_device.enable_bus_mastering();
 
                         rtl.init();
-                        // rtl.send_arp();
                         log::debug!("RTL mac address {:?}", rtl.get_mac());
                         rtl.register_interrupts(header.interrupt_line);
                         return;
@@ -177,8 +176,6 @@ impl Ports {
                 Port::new(io_base + 0x28),
                 Port::new(io_base + 0x2C),
             ],
-            // tx_status0: Port::new(io_base + 0x10),
-            // tx_start_addr0: Port::new(io_base + 0x20),
             receive_buffer_start: Port::new(io_base + 0x30),
             command_reg: Port::new(io_base + 0x37),
             capr: Port::new(io_base + 0x38),

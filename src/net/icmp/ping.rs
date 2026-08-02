@@ -205,7 +205,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
 
             // reborrow interface so that ping doesnt break if interface settings are changed
             // I forsee that ping being run in a loop while messing with settings is likely.
-            let Some(interface) = *crate::net::INTERFACE.read().await else {
+            let Some(interface) = crate::net::current_interface().await else {
                 log::error!("Unable to load network interface.");
                 let _ = done_tx.send(());
                 return;

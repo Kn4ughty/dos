@@ -57,8 +57,7 @@ async fn send_udp_packet_to_self() {
 
     let test_data = b"This is some test bytes that should survive transmission";
 
-    let interface = crate::net::INTERFACE
-        .read()
+    let interface = crate::net::current_interface()
         .await
         .expect("network card exists");
 
