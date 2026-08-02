@@ -103,7 +103,6 @@ pub enum SocketError {
 }
 
 pub enum SocketProtocol {
-    #[expect(unused)]
     Tcp,
     Udp,
 }
@@ -121,7 +120,10 @@ pub struct SocketHandle {
 
 impl SocketHandle {
     // RAII is so cool
-    pub fn new(port: Port, binding_address: Ipv4Addr) -> Result<SocketHandle, SocketError> {
+    // TODO. use binding address
+    /// # Errors
+    /// Errors if the port is already in use
+    pub fn new(port: Port, _binding_address: Ipv4Addr) -> Result<SocketHandle, SocketError> {
         {
             let mut registry = SOCKET_REGISTRY.lock();
 
@@ -144,6 +146,8 @@ impl SocketHandle {
     }
 
     // We have ownership over this port,
+    /// # Errors
+    /// Errors if unable to create or send the ipv4 packet
     pub async fn send_data(
         &mut self,
         dest_ip: Ipv4Addr,

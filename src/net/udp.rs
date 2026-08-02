@@ -27,7 +27,7 @@ impl UdpPacketHeader {
 }
 
 impl UdpPacketHeader {
-    pub fn from_bytes(bytes: &[u8; 8]) -> Self {
+    pub fn from_bytes(bytes: [u8; 8]) -> Self {
         UdpPacketHeader {
             src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()).into(),
             dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()).into(),

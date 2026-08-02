@@ -114,12 +114,9 @@ impl Writer {
     }
 
     fn write_byte_with_colour(&mut self, byte: u8, colour: ColorCode) {
-        match byte {
-            b'\n' => {
-                self.new_line();
-                return;
-            }
-            _ => {}
+        if byte == b'\n' {
+            self.new_line();
+            return;
         }
 
         if self.column_position >= BUFFER_WIDTH {

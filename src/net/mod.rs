@@ -165,16 +165,13 @@ impl Stream for NetworkStream {
         }
         WAKER.register(cx.waker());
 
-        match queue.pop() {
-            Some(packet) => {
-                WAKER.take();
-                log::trace!("Networkstream woken and packet was returned");
-                Poll::Ready(Some(packet))
-            }
-            None => {
-                log::trace!("Network stream woken but no packet in queue");
-                Poll::Pending
-            }
+        if let Some(packet) = queue.pop() {
+            WAKER.take();
+            log::trace!("Networkstream woken and packet was returned");
+            Poll::Ready(Some(packet))
+        } else {
+            log::trace!("Network stream woken but no packet in queue");
+            Poll::Pending
         }
     }
 }
