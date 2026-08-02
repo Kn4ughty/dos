@@ -18,6 +18,13 @@ default = ["bootimage", "backdoor"]
 bootimage = []
 backdoor = []
 
+[profile.small]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
 [package.metadata.bootimage]
 test-args = [
     "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", 
