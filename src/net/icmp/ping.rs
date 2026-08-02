@@ -8,20 +8,16 @@ use futures::select_biased;
 use futures_util::{FutureExt, Stream, StreamExt, future, task::AtomicWaker};
 use hashbrown::HashMap;
 
-use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, Interface, NoSubcode};
+use super::{ControlMessageType, ICMPPacket, IPv4Header, IPv4Packet, NoSubcode};
 use crate::net::icmp::PACKET_TIMEOUT_DURATION;
-use crate::net::{Ipv4Addr, ip, ones_complement_checksum};
+use crate::net::{self, Ipv4Addr, ip, ones_complement_checksum};
 use crate::println;
 use crate::sync::spinlock::Mutex;
 use crate::task::sleep;
 use crate::time::Instant;
 
 // should this be made into a generic handle<T> ?
-pub async fn handle_icmp_echo_request(
-    icmpp: ICMPPacket<'_>,
-    header: &IPv4Header,
-    interface: &Interface,
-) {
+pub async fn handle_icmp_echo_request(icmpp: ICMPPacket<'_>, header: &IPv4Header) {
     log::debug!("{:?}", icmpp.data);
 
     #[cfg(feature = "backdoor")]
@@ -62,6 +58,15 @@ pub async fn handle_icmp_echo_request(
     );
 
     let resp_bytes = response.to_bytes();
+
+    let Some(interface) = net::get_inferface_for_ip_via_subnet(header.source_address).await else {
+        log::error!(
+            "No interface found. Failing to respond to icmp request from {}",
+            header.source_address
+        );
+        return;
+    };
+
     let ipv4 = IPv4Packet::from_source_dest_and_data(
         interface.ip,
         header.source_address,
@@ -71,7 +76,7 @@ pub async fn handle_icmp_echo_request(
     .expect("Packet constructed incorrectly");
 
     log::trace!("Sending icmp response: {:?}", ipv4);
-    let _ = crate::net::ip::send_ipv4_packet(ipv4, interface).await;
+    let _ = crate::net::ip::send_ipv4_packet(ipv4, &interface).await;
 }
 
 #[derive(Debug)]
@@ -92,11 +97,7 @@ impl PingRequestInfo {
 }
 
 /// This is called when an echo response addressed to us has arrived.
-pub fn handle_icmp_echo_response(
-    icmpp: &ICMPPacket<'_>,
-    header: &IPv4Header,
-    _interface: &Interface,
-) {
+pub fn handle_icmp_echo_response(icmpp: &ICMPPacket<'_>, header: &IPv4Header) {
     log::debug!(
         "received icmp response! {:?} from source: {}",
         icmpp,
@@ -205,7 +206,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
 
             // reborrow interface so that ping doesnt break if interface settings are changed
             // I forsee that ping being run in a loop while messing with settings is likely.
-            let Some(interface) = crate::net::current_interface().await else {
+            let Some(interface) = crate::net::get_inferface_for_ip_via_subnet(target).await else {
                 log::error!("Unable to load network interface.");
                 let _ = done_tx.send(());
                 return;

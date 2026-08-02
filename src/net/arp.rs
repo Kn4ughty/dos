@@ -60,12 +60,21 @@ impl Future for ArpNotifyFuture {
     }
 }
 
-pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
+pub async fn handle_arp_incoming(p: &ArpPacket) {
     trace!("Handling ARP");
     match p.operation {
         1 => {
             // received a request
             trace!("arp_requst: {:?}", p);
+
+            let Some(interface) =
+                super::get_inferface_for_ip_via_subnet(p.target_protocol_address).await
+            else {
+                log::error!(
+                    "Arp request for was not for IP on same subnet OR no interface available. This is weird"
+                );
+                return;
+            };
 
             // Ignore packets not addressed to ourselves
             if p.target_protocol_address != interface.ip {
@@ -91,7 +100,7 @@ pub async fn handle_arp_incoming(p: &ArpPacket, interface: &Interface) {
                 data: &arp_bytes,
             };
 
-            super::send_frame(interface, ep.into(), false).await;
+            super::send_frame(&interface, ep.into(), false).await;
         }
         2 => {
             // received a reply

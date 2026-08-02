@@ -7,7 +7,6 @@ pub mod ping;
 
 use crate::{
     net::{
-        Interface,
         ip::{IPv4Header, IPv4Packet},
         ones_complement_checksum,
     },
@@ -24,7 +23,7 @@ pub struct ICMPPacket<'a> {
     data: &'a [u8],
 }
 
-pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: &Interface) {
+pub async fn handle_icmp(packet: &IPv4Packet<'_>) {
     // Packet already validated to have us as its destination
     let Ok(icmpp) = ICMPPacket::try_from(packet.data) else {
         return;
@@ -34,10 +33,10 @@ pub async fn handle_icmp(packet: &IPv4Packet<'_>, interface: &Interface) {
 
     match icmpp.typ {
         ControlMessageType::EchoRequest(NoSubcode::NoCode) => {
-            ping::handle_icmp_echo_request(icmpp, &packet.header, interface).await;
+            ping::handle_icmp_echo_request(icmpp, &packet.header).await;
         }
         ControlMessageType::EchoReply(NoSubcode::NoCode) => {
-            ping::handle_icmp_echo_response(&icmpp, &packet.header, interface);
+            ping::handle_icmp_echo_response(&icmpp, &packet.header);
         }
         unknown => {
             log::warn!("Unhandled ICMP ControlMessageType: {:?}", unknown);

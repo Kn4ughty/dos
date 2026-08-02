@@ -11,7 +11,7 @@ pub enum EthernetError {
     UnknownEtherType,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MacAddress(pub [u8; 6]);
 
 pub const BROADCAST_MAC: MacAddress = const { MacAddress([0xff; 6]) };

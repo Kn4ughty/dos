@@ -32,29 +32,27 @@ mod udp;
 
 use ethernet::{EthernetFrame, EthernetPacket};
 
+static WAKER: AtomicWaker = AtomicWaker::new();
+
 const PACKET_QUEUE_SIZE: usize = 16;
 lazy_static! {
     static ref PACKET_QUEUE: Mutex<ArrayQueue<Vec<u8>>> =
         Mutex::new(ArrayQueue::new(PACKET_QUEUE_SIZE));
+    static ref INTERFACES: RwLock<Vec<Interface>> = RwLock::new(Vec::new());
 }
-static WAKER: AtomicWaker = AtomicWaker::new();
 
-// todo. remove port abstraction. just let it be a u16
+async fn get_inferface_for_ip_via_subnet(destination: Ipv4Addr) -> Option<Interface> {
+    let interfaces = INTERFACES.read().await;
+    interfaces
+        .iter()
+        .find(|i| i.is_same_subnet(destination))
+        .or_else(|| interfaces.first())
+        .copied() // This wil cause TOCTOU bugs when changing device settings at runtime is implemented
+}
 
-// The interface needs to be mutable. It could be a onceCell, but adding nic
-// is adding interfaces at runtime something i need? mmm yeah cause stuff can be unplugged.
-// that only applies to usb devices though.
-// The interface needs to allow multiple reads at once.
-// That means that a RwLock needs to be used.
-// Using a mutex for now
-static INTERFACE: RwLock<Option<Interface>> = RwLock::new(None);
-
-pub async fn current_interface() -> Option<Interface> {
-    let Some(interface) = *crate::net::INTERFACE.read().await else {
-        log::error!("Unable to load network interface.");
-        return None;
-    };
-    Some(interface)
+async fn is_ip_for_us(ip: Ipv4Addr) -> bool {
+    let interfaces = INTERFACES.read().await;
+    ip.is_loopback() || interfaces.iter().any(|i| i.ip == ip)
 }
 
 /// Contains data about a network connection, but does not actually hold the nic
@@ -66,6 +64,13 @@ pub struct Interface {
     gateway: Ipv4Addr,
     subnet_mask: Ipv4Addr,
     which: WhichInterface,
+}
+
+impl Interface {
+    #[must_use]
+    pub fn is_same_subnet(&self, ip: Ipv4Addr) -> bool {
+        self.subnet_mask & self.gateway == self.subnet_mask & ip
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -108,8 +113,8 @@ pub fn init() {
         which: WhichInterface::RTL8139,
     };
 
-    let mut target = block_on(INTERFACE.write());
-    *target = Some(intf);
+    let mut target = block_on(INTERFACES.write());
+    target.push(intf);
 }
 
 static TX_WAKER: AtomicWaker = AtomicWaker::new();
@@ -206,7 +211,7 @@ pub async fn loop_networking() {
         match ep.typ {
             EtherType::Arp => {
                 if let Ok(a) = arp::ArpPacket::try_from(ep.data) {
-                    arp::handle_arp_incoming(&a, &INTERFACE.read().await.unwrap()).await;
+                    arp::handle_arp_incoming(&a).await;
                 }
             }
             EtherType::IPv4 => {
@@ -216,7 +221,7 @@ pub async fn loop_networking() {
                         .lock()
                         .insert(ip_packet.header.source_address, ep.source);
 
-                    ip::handle_packet(&ip_packet, &INTERFACE.read().await.unwrap()).await;
+                    ip::handle_incoming_packet(&ip_packet).await;
                 }
             }
         }
@@ -262,7 +267,8 @@ pub async fn ncu(args: &[&str]) {
     }
     .into();
 
-    let Some(interface) = current_interface().await else {
+    let Some(interface) = get_inferface_for_ip_via_subnet(destination).await else {
+        log::error!("No interface found");
         return;
     };
 
@@ -272,10 +278,7 @@ pub async fn ncu(args: &[&str]) {
         return;
     };
 
-    let Ok(()) = handle
-        .send_data(destination, dst_port, &[], interface)
-        .await
-    else {
+    let Ok(()) = handle.send_data(destination, dst_port, &[]).await else {
         log::error!("could not send data");
         return;
     };

@@ -9,32 +9,33 @@ use log::trace;
 
 use super::{Interface, ones_complement_checksum, socket};
 
-pub async fn handle_packet(packet: &IPv4Packet<'_>, interface: &Interface) {
+pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);
 
-    if packet.header.destination_address != interface.ip
-        && !packet.header.destination_address.is_loopback()
-    {
+    if !super::is_ip_for_us(packet.header.destination_address).await {
         return;
     }
+
     trace!("Decided to handle packet");
 
     match packet.header.protocol {
         IPProtocol::Icmp => {
             use super::icmp;
-            icmp::handle_icmp(packet, interface).await;
+            icmp::handle_icmp(packet).await;
         }
         IPProtocol::Udp | IPProtocol::Tcp => {
-            socket::handle_incoming_packet(packet, interface);
+            socket::handle_incoming_packet(packet);
         }
     }
 }
 
-pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> Result<(), ()> {
+pub async fn send_ipv4_packet(
+    packet: IPv4Packet<'_>,
+    interface: &Interface,
+) -> Result<(), IpError> {
     // Goal. Determine if a destination address is within the current subnet
     // if (mask & gateway) == (mask & destination_address)
-    let on_same_subnet: bool = interface.subnet_mask & interface.gateway
-        == interface.subnet_mask & packet.header.destination_address;
+    let on_same_subnet: bool = interface.is_same_subnet(packet.header.destination_address);
 
     let is_loopback = packet.header.destination_address == interface.ip
         || packet.header.destination_address.is_loopback();
@@ -50,7 +51,7 @@ pub async fn send_ipv4_packet(packet: IPv4Packet<'_>, interface: &Interface) -> 
             packet.header
         );
 
-        return Err(());
+        return Err(IpError::CouldNotObtainMacAdress);
     };
     log::debug!("found mac for target: {:?}", dest_mac);
 
@@ -169,6 +170,7 @@ bitflags! {
 pub enum IpError {
     PacketNotLongEnough,
     UnknownProtocol,
+    CouldNotObtainMacAdress,
     DataTooLong,
 }
 

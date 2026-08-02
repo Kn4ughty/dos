@@ -57,12 +57,8 @@ async fn send_udp_packet_to_self() {
 
     let test_data = b"This is some test bytes that should survive transmission";
 
-    let interface = crate::net::current_interface()
-        .await
-        .expect("network card exists");
-
     outgoing_socket
-        .send_data(Ipv4Addr::LOCALHOST, 2.into(), test_data, interface)
+        .send_data(Ipv4Addr::LOCALHOST, 2.into(), test_data)
         .await
         .expect("Can send udp data");
     log::debug!("Sent packet on port 2");

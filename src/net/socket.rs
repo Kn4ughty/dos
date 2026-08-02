@@ -10,10 +10,11 @@ use futures::task::AtomicWaker;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 
-use super::ip::IPProtocol;
+use super::IPv4Packet;
 use super::udp::UdpPacket;
-use super::{IPv4Packet, Interface};
 
+use crate::net::ip;
+use crate::net::ip::IPProtocol;
 use crate::net::udp::UdpPacketHeader;
 use crate::sync::spinlock::Mutex;
 
@@ -38,7 +39,7 @@ lazy_static! {
 //     binding_address: Ipv4Addr,
 // }
 
-pub fn handle_incoming_packet(packet: &IPv4Packet<'_>, _interface: &Interface) {
+pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     // packket header already validated to be tcp or udp
     // Either way just need to get port and then put into appropriate queue
 
@@ -100,11 +101,23 @@ impl From<u16> for Port {
 #[derive(Debug)]
 pub enum SocketError {
     PortAlreadyInUse,
+    UnableToGetNetworkInterface,
+    IpError(ip::IpError),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum SocketProtocol {
     Tcp,
     Udp,
+}
+
+impl From<SocketProtocol> for IPProtocol {
+    fn from(value: SocketProtocol) -> Self {
+        match value {
+            SocketProtocol::Udp => IPProtocol::Udp,
+            SocketProtocol::Tcp => IPProtocol::Tcp,
+        }
+    }
 }
 
 // If the user has a handle, that means they are the effective owner of that port, and all traffic
@@ -153,8 +166,7 @@ impl SocketHandle {
         dest_ip: Ipv4Addr,
         dest_port: Port,
         data: &[u8],
-        interface: Interface,
-    ) -> Result<(), ()> {
+    ) -> Result<(), SocketError> {
         let transport_packet = match &self.typ {
             SocketProtocol::Udp => {
                 let udp_packet = UdpPacket::new(self.port, dest_port, data);
@@ -166,23 +178,27 @@ impl SocketHandle {
             }
         };
 
-        let Ok(packet) = IPv4Packet::from_source_dest_and_data(
+        let interface = super::get_inferface_for_ip_via_subnet(dest_ip)
+            .await
+            .ok_or(SocketError::UnableToGetNetworkInterface)?;
+
+        let packet = IPv4Packet::from_source_dest_and_data(
             interface.ip,
             dest_ip,
-            match self.typ {
-                SocketProtocol::Udp => IPProtocol::Udp,
-                SocketProtocol::Tcp => IPProtocol::Tcp,
-            },
+            self.typ.into(),
             transport_packet.as_slice(),
-        ) else {
+        )
+        .map_err(|error| {
             log::error!("Unable to create ipv4packet");
-            return Err(());
-        };
+            SocketError::IpError(error)
+        })?;
 
-        let Ok(()) = super::ip::send_ipv4_packet(packet, &interface).await else {
-            log::error!("Error sending ip packet");
-            return Err(());
-        };
+        super::ip::send_ipv4_packet(packet, &interface)
+            .await
+            .map_err(|e| {
+                log::error!("Error sending ip packet");
+                SocketError::IpError(e)
+            })?;
 
         Ok(())
     }
