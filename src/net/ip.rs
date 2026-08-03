@@ -7,7 +7,7 @@ use core::{
 };
 use log::trace;
 
-use super::{Interface, ones_complement_checksum, socket};
+use super::{ones_complement_checksum, socket};
 
 pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     trace!("unfilted ip_packet_header: {:?}", packet.header);

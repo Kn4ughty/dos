@@ -15,7 +15,8 @@ use super::udp::UdpPacket;
 
 use crate::net::ip;
 use crate::net::ip::IPProtocol;
-use crate::net::udp::UdpPacketHeader;
+use crate::net::tcp;
+use crate::net::udp;
 use crate::sync::spinlock::Mutex;
 
 /// How many packets get held before being dropped
@@ -43,7 +44,7 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
                 return;
             };
 
-            let packet_header = UdpPacketHeader::from_bytes(data);
+            let packet_header = udp::UdpPacketHeader::from_bytes(data);
 
             let mut new_data = Vec::new();
             new_data.extend_from_slice(&packet.data[8..]);
@@ -104,31 +105,49 @@ pub enum SocketError {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SocketProtocol {
+pub enum SocketProtocolType {
     Tcp,
     Udp,
 }
 
-impl From<SocketProtocol> for IPProtocol {
-    fn from(value: SocketProtocol) -> Self {
+impl From<SocketProtocolType> for IPProtocol {
+    fn from(value: SocketProtocolType) -> Self {
         match value {
-            SocketProtocol::Udp => IPProtocol::Udp,
-            SocketProtocol::Tcp => IPProtocol::Tcp,
+            SocketProtocolType::Udp => IPProtocol::Udp,
+            SocketProtocolType::Tcp => IPProtocol::Tcp,
+        }
+    }
+}
+
+impl<'a> From<&mut SocketHandle<'a>> for IPProtocol {
+    fn from(value: &mut SocketHandle<'a>) -> Self {
+        match value {
+            SocketHandle::Tcp(_) => IPProtocol::Tcp,
+            SocketHandle::Udp(_) => IPProtocol::Udp,
         }
     }
 }
 
 /// Held by a user to indicate that they have ownership over the send/recv of a specific port
-pub struct SocketHandle {
-    port: Port,
-    typ: SocketProtocol,
+pub enum SocketHandle<'a> {
+    /// UDP just contains a port because it is connectionless
+    Udp(Port),
+    Tcp(tcp::TcpSocket<'a>),
 }
 
-impl SocketHandle {
+impl<'a> SocketHandle<'a> {
     // RAII is so cool
+    /// Creates a new socket handle
+    /// It is currently not possible to have a port be both a TCP and UDP connection at once. Oh
+    /// well.
     /// # Errors
     /// Errors if the port is already in use
-    pub fn new(port: Port, binding_address: Ipv4Addr) -> Result<SocketHandle, SocketError> {
+    ///
+    pub fn new(
+        port: Port,
+        binding_address: Ipv4Addr,
+        typ: SocketProtocolType,
+    ) -> Result<SocketHandle<'a>, SocketError> {
         {
             let mut registry = SOCKET_REGISTRY.lock();
 
@@ -146,9 +165,10 @@ impl SocketHandle {
             );
         }
 
-        Ok(SocketHandle {
-            port,
-            typ: SocketProtocol::Udp,
+        Ok(match typ {
+            SocketProtocolType::Udp => SocketHandle::Udp(port),
+            #[expect(unused)]
+            SocketProtocolType::Tcp => SocketHandle::Tcp(todo!()),
         })
     }
 
@@ -161,13 +181,13 @@ impl SocketHandle {
         dest_port: Port,
         data: &[u8],
     ) -> Result<(), SocketError> {
-        let transport_packet = match &self.typ {
-            SocketProtocol::Udp => {
-                let udp_packet = UdpPacket::new(self.port, dest_port, data);
+        let transport_packet = match self {
+            SocketHandle::Udp(port) => {
+                let udp_packet = UdpPacket::new(*port, dest_port, data);
 
                 udp_packet.to_bytes()
             }
-            SocketProtocol::Tcp => {
+            SocketHandle::Tcp(_tcp_socket) => {
                 todo!("TCP support not yet implemented")
             }
         };
@@ -179,7 +199,7 @@ impl SocketHandle {
         let packet = IPv4Packet::from_source_dest_and_data(
             interface.ip,
             dest_ip,
-            self.typ.into(),
+            self.into(),
             transport_packet.as_slice(),
         )
         .map_err(|error| {
@@ -194,18 +214,28 @@ impl SocketHandle {
 
         Ok(())
     }
+
+    #[must_use]
+    pub fn get_port(&self) -> Port {
+        match self {
+            SocketHandle::Tcp(tcp_socket) => tcp_socket.port,
+            SocketHandle::Udp(port) => *port,
+        }
+    }
 }
 
-impl Drop for SocketHandle {
+impl Drop for SocketHandle<'_> {
     fn drop(&mut self) {
+        let port = self.get_port();
+
         {
             let mut registry = SOCKET_REGISTRY.lock();
-            registry.remove(&self.port);
+            registry.remove(&port);
         }
 
         {
             let mut registry = SOCKET_REGISTRY.lock();
-            registry.remove(&self.port);
+            registry.remove(&port);
         }
     }
 }
@@ -215,13 +245,13 @@ pub struct SocketResponse {
     pub data: Vec<u8>,
 }
 
-impl Stream for SocketHandle {
+impl Stream for SocketHandle<'_> {
     type Item = SocketResponse;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut registery = SOCKET_REGISTRY.lock();
         let key = registery
-            .get_mut(&self.port)
+            .get_mut(&self.get_port())
             .expect("impossible to have handle on closed port");
 
         key.waker.register(cx.waker());

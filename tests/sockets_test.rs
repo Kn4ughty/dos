@@ -52,10 +52,12 @@ async fn run_tests() {
 async fn send_udp_packet_to_self() {
     // port 2 and 3 are reserved, so they shouldn't be used by anything else
     let mut incoming_socket =
-        SocketHandle::new(2.into(), Ipv4Addr::LOCALHOST).expect("Can obtain port 2");
+        SocketHandle::new(2.into(), Ipv4Addr::LOCALHOST, SocketProtocolType::Udp)
+            .expect("Can obtain port 2");
 
     let mut outgoing_socket =
-        SocketHandle::new(3.into(), Ipv4Addr::LOCALHOST).expect("Can obtain port 3");
+        SocketHandle::new(3.into(), Ipv4Addr::LOCALHOST, SocketProtocolType::Udp)
+            .expect("Can obtain port 3");
 
     let test_data = b"This is some test bytes that should survive transmission";
 

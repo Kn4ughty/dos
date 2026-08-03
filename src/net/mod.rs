@@ -28,6 +28,7 @@ mod icmp;
 mod ip;
 mod nic;
 pub mod socket;
+pub mod tcp; // unpub me once tcp api finished. (here to suppress unused warnings)
 mod udp;
 
 use ethernet::{EthernetFrame, EthernetPacket};
@@ -273,7 +274,9 @@ pub async fn ncu(args: &[&str]) {
     };
 
     // TODO. Generate random num for source port
-    let Ok(mut handle) = socket::SocketHandle::new(13.into(), interface.ip) else {
+    let Ok(mut handle) =
+        socket::SocketHandle::new(13.into(), interface.ip, socket::SocketProtocolType::Udp)
+    else {
         log::error!("Could not obtain handle to port");
         return;
     };
