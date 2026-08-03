@@ -18,19 +18,16 @@ use crate::net::ip::IPProtocol;
 use crate::net::udp::UdpPacketHeader;
 use crate::sync::spinlock::Mutex;
 
-// uhh these statics can be merged but doing this for now. TODO fix it
-
-lazy_static! {
-    // using spinlock here may cause problems with preemptive multitasking but is fine for now
-    static ref SOCKET_REGISTRY: Mutex<HashMap<Port, AtomicWaker>> = Mutex::new(HashMap::new());
-}
-
 /// How many packets get held before being dropped
 const SOCKET_RESPONSE_QUEUE_BUFFER_LENGTH: usize = 10;
 
 lazy_static! {
-    static ref SOCKET_RESPONSE_QUEUE: Mutex<HashMap<Port, ArrayQueue<SocketResponse>>> =
-        Mutex::new(HashMap::new());
+    static ref SOCKET_REGISTRY: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
+}
+
+struct RegistryKey {
+    waker: AtomicWaker,
+    packet_buffer: ArrayQueue<SocketResponse>,
 }
 
 // pub struct SocketRegistration {
@@ -69,24 +66,20 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
         }
     };
 
-    let queue_map = SOCKET_RESPONSE_QUEUE.lock();
-    let Some(queue) = queue_map.get(&dst_port) else {
+    let registry = SOCKET_REGISTRY.lock();
+    let Some(registry_key) = registry.get(&dst_port) else {
         log::debug!("packet did not have slot in da queue");
         return;
     };
 
-    match queue.push(response) {
+    match registry_key.packet_buffer.push(response) {
         Ok(()) => {}
         Err(_) => {
             log::error!("socket packet queue full for port: {:?}", dst_port);
         }
     }
 
-    let registry = SOCKET_REGISTRY.lock();
-    registry
-        .get(&dst_port)
-        .expect("state erorr fixme with better error message")
-        .wake();
+    registry_key.waker.wake();
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -144,12 +137,13 @@ impl SocketHandle {
                 return Err(SocketError::PortAlreadyInUse);
             }
 
-            registry.insert(port, AtomicWaker::new());
-        }
-
-        {
-            let mut queue = SOCKET_RESPONSE_QUEUE.lock();
-            queue.insert(port, ArrayQueue::new(SOCKET_RESPONSE_QUEUE_BUFFER_LENGTH));
+            registry.insert(
+                port,
+                RegistryKey {
+                    waker: AtomicWaker::new(),
+                    packet_buffer: ArrayQueue::new(SOCKET_RESPONSE_QUEUE_BUFFER_LENGTH),
+                },
+            );
         }
 
         Ok(SocketHandle {
@@ -212,8 +206,8 @@ impl Drop for SocketHandle {
         }
 
         {
-            let mut queue = SOCKET_RESPONSE_QUEUE.lock();
-            queue.remove(&self.port);
+            let mut registry = SOCKET_REGISTRY.lock();
+            registry.remove(&self.port);
         }
     }
 }
@@ -227,26 +221,19 @@ impl Stream for SocketHandle {
     type Item = SocketResponse;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let lock = SOCKET_REGISTRY.lock();
-        let waker = lock
-            .get(&self.port)
+        let mut registery = SOCKET_REGISTRY.lock();
+        let key = registery
+            .get_mut(&self.port)
             .expect("impossible to have handle on closed port");
 
-        waker.register(cx.waker());
+        key.waker.register(cx.waker());
 
         // omg woke up. That means there is a packet available in the queue
 
-        let response = {
-            let mut entire_queue = SOCKET_RESPONSE_QUEUE.lock();
-
-            entire_queue
-                .get_mut(&self.port)
-                .expect("response queue must have slot for an initialised socketHandle")
-                .pop()
-        };
+        let response = key.packet_buffer.pop();
 
         if let Some(response) = response {
-            waker.take();
+            key.waker.take();
             Poll::Ready(Some(response))
         } else {
             Poll::Pending
