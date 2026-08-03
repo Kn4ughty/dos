@@ -50,7 +50,7 @@ async fn run_tests() {
 }
 
 async fn send_udp_packet_to_self() {
-    // port 2 and 3 are reserved, so they wont be used by anything else
+    // port 2 and 3 are reserved, so they shouldn't be used by anything else
     let mut incoming_socket =
         SocketHandle::new(2.into(), Ipv4Addr::LOCALHOST).expect("Can obtain port 2");
 

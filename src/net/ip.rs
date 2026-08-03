@@ -1,5 +1,5 @@
 use super::{arp, ethernet};
-use crate::tryfrom::tryfrom;
+use crate::{net::get_inferface_for_ip_via_subnet, tryfrom::tryfrom};
 use bitflags::bitflags;
 use core::{
     hash::{Hash, Hasher},
@@ -29,10 +29,10 @@ pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     }
 }
 
-pub async fn send_ipv4_packet(
-    packet: IPv4Packet<'_>,
-    interface: &Interface,
-) -> Result<(), IpError> {
+pub async fn send_ipv4_packet(packet: IPv4Packet<'_>) -> Result<(), IpError> {
+    let interface = &get_inferface_for_ip_via_subnet(packet.header.destination_address)
+        .await
+        .ok_or(IpError::CouldNotGetInterface)?;
     // Goal. Determine if a destination address is within the current subnet
     // if (mask & gateway) == (mask & destination_address)
     let on_same_subnet: bool = interface.is_same_subnet(packet.header.destination_address);
@@ -167,11 +167,13 @@ bitflags! {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum IpError {
     PacketNotLongEnough,
     UnknownProtocol,
     CouldNotObtainMacAdress,
     DataTooLong,
+    CouldNotGetInterface,
 }
 
 #[derive(Debug)]

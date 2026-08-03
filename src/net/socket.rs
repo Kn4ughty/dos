@@ -187,12 +187,10 @@ impl SocketHandle {
             SocketError::IpError(error)
         })?;
 
-        super::ip::send_ipv4_packet(packet, &interface)
-            .await
-            .map_err(|e| {
-                log::error!("Error sending ip packet");
-                SocketError::IpError(e)
-            })?;
+        super::ip::send_ipv4_packet(packet).await.map_err(|e| {
+            log::error!("Error sending ip packet");
+            SocketError::IpError(e)
+        })?;
 
         Ok(())
     }

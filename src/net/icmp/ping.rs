@@ -74,7 +74,7 @@ pub async fn handle_icmp_echo_request(icmpp: ICMPPacket<'_>, header: &IPv4Header
     .expect("Packet constructed incorrectly");
 
     log::trace!("Sending icmp response: {:?}", ipv4);
-    let _ = crate::net::ip::send_ipv4_packet(ipv4, &interface).await;
+    let _ = crate::net::ip::send_ipv4_packet(ipv4).await;
 }
 
 #[derive(Debug)]
@@ -216,7 +216,7 @@ pub async fn ping(target: Ipv4Addr, count: u16) {
                 bytes.as_slice(),
             )
             .expect("icmp request is valid");
-            let Ok(()) = ip::send_ipv4_packet(packet, &interface).await else {
+            let Ok(()) = ip::send_ipv4_packet(packet).await else {
                 log::error!("could not send icmp request.");
                 let _ = done_tx.send(());
                 return;
