@@ -33,9 +33,11 @@ fn main(boot_info: &'static BootInfo) -> ! {
     executor.run();
 }
 
+/// Cannot use the normal test runner here because it does not support async functions,
+/// and we need to grantee that the network loop is running
 async fn run_tests() {
     let tests = [send_udp_packet_to_self];
-    serial_println!("runnning socket {:?} tests", tests.len());
+    serial_println!("running socket {:?} tests", tests.len());
     for test in tests {
         serial_println!(
             "running socket test: {}",
@@ -60,7 +62,7 @@ async fn send_udp_packet_to_self() {
     outgoing_socket
         .send_data(Ipv4Addr::LOCALHOST, 2.into(), test_data)
         .await
-        .expect("Can send udp data");
+        .expect("Can send UDP data");
     log::debug!("Sent packet on port 2");
 
     let response = incoming_socket
