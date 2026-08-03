@@ -28,18 +28,10 @@ lazy_static! {
 struct RegistryKey {
     waker: AtomicWaker,
     packet_buffer: ArrayQueue<SocketResponse>,
+    binding_address: Ipv4Addr,
 }
 
-// pub struct SocketRegistration {
-//     waker: AtomicWaker,
-//     incoming_queue: ArrayQueue<SocketResponse>,
-//     binding_address: Ipv4Addr,
-// }
-
 pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
-    // packket header already validated to be tcp or udp
-    // Either way just need to get port and then put into appropriate queue
-
     let (dst_port, response) = match packet.header.protocol {
         IPProtocol::Tcp => {
             log::debug!("dropping TCP packet");
@@ -62,7 +54,8 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             (packet_header.dst_port, sr)
         }
         _ => {
-            panic!("should've been validated beforehannd!!")
+            // TODO. Work out how to encode that in types
+            unreachable!("Packet type should have been validated to be tcp or UDP before this")
         }
     };
 
@@ -71,6 +64,18 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
         log::debug!("packet did not have slot in da queue");
         return;
     };
+
+    let accept_packet = registry_key.binding_address.is_unspecified()
+        || packet.header.destination_address.is_loopback()
+        || packet.header.destination_address == registry_key.binding_address;
+
+    if !accept_packet {
+        log::debug!(
+            "Dropping incoming TCP/UDP packet. Packet header: {:?}",
+            packet.header
+        );
+        return;
+    }
 
     match registry_key.packet_buffer.push(response) {
         Ok(()) => {}
@@ -113,12 +118,7 @@ impl From<SocketProtocol> for IPProtocol {
     }
 }
 
-// If the user has a handle, that means they are the effective owner of that port, and all traffic
-// to that port should be sent to them via that sockethandle.
-// That means that the socket handle should have an awaitable method to get the next response
-// I did a similar pattern for the ping response stream code
-
-/// Held by a user to indicate that they have ownership over the send/recv of a specfic port
+/// Held by a user to indicate that they have ownership over the send/recv of a specific port
 pub struct SocketHandle {
     port: Port,
     typ: SocketProtocol,
@@ -126,10 +126,9 @@ pub struct SocketHandle {
 
 impl SocketHandle {
     // RAII is so cool
-    // TODO. use binding address
     /// # Errors
     /// Errors if the port is already in use
-    pub fn new(port: Port, _binding_address: Ipv4Addr) -> Result<SocketHandle, SocketError> {
+    pub fn new(port: Port, binding_address: Ipv4Addr) -> Result<SocketHandle, SocketError> {
         {
             let mut registry = SOCKET_REGISTRY.lock();
 
@@ -142,6 +141,7 @@ impl SocketHandle {
                 RegistryKey {
                     waker: AtomicWaker::new(),
                     packet_buffer: ArrayQueue::new(SOCKET_RESPONSE_QUEUE_BUFFER_LENGTH),
+                    binding_address,
                 },
             );
         }
@@ -240,18 +240,3 @@ impl Stream for SocketHandle {
         }
     }
 }
-
-impl Hash for SocketHandle {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        // The port of the socket is the uniquely identifying characteristic
-        self.port.hash(state);
-    }
-}
-
-impl PartialEq for SocketHandle {
-    fn eq(&self, other: &Self) -> bool {
-        self.port == other.port
-    }
-}
-
-impl Eq for SocketHandle {}
