@@ -39,12 +39,12 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             return;
         }
         IPProtocol::Udp => {
-            let Ok(data) = packet.data[0..8].try_into() else {
-                log::warn!("udp packet wasnt even long enough to have a header");
+            let Ok(header_bytes) = packet.data[0..8].try_into() else {
+                log::warn!("UDP packet wasnt long enough to have a header, dropping");
                 return;
             };
 
-            let packet_header = udp::UdpPacketHeader::from_bytes(data);
+            let packet_header = udp::UdpPacketHeader::from_bytes(header_bytes);
 
             let mut new_data = Vec::new();
             new_data.extend_from_slice(&packet.data[8..]);

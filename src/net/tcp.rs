@@ -14,15 +14,24 @@ use socket::Port;
 /// Manages all connections for a particular tcp socket
 pub struct TcpSocket<'a> {
     pub port: Port,
+    binding_addresss: Ipv4Addr,
     connections: Vec<TcpConnection<'a>>,
 }
 
 impl<'a> TcpSocket<'a> {
-    pub fn new(port: Port) -> TcpSocket<'a> {
+    pub fn new(port: Port, binding_addresss: Ipv4Addr) -> TcpSocket<'a> {
         TcpSocket {
             port,
+            binding_addresss,
             connections: Vec::new(),
         }
+    }
+
+    // maybe could return a TcpConnection object.
+    // However self then needs to somehow send incoming packets into that TcpConnection
+    // legitimate use case for Arc<Mutex<>> ?
+    pub async fn connect(&mut self, dest_ip: Ipv4Addr, dest_port: Port) -> ! {
+        todo!()
     }
 }
 
