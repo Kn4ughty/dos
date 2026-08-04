@@ -1,5 +1,7 @@
 global _start
 
+; See the ping handling code for how to use this
+
 bits 64
 _start:
     mov edi, 0xb8000
