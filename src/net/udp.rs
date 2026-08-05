@@ -17,8 +17,8 @@ pub struct UdpPacket<'a> {
 impl UdpPacketHeader {
     fn to_bytes(self) -> [u8; 8] {
         let mut out = [0u8; 8];
-        out[0..2].copy_from_slice(&self.src_port.0.to_be_bytes());
-        out[2..4].copy_from_slice(&self.dst_port.0.to_be_bytes());
+        out[0..2].copy_from_slice(&self.src_port.to_be_bytes());
+        out[2..4].copy_from_slice(&self.dst_port.to_be_bytes());
         out[4..6].copy_from_slice(&self.length.to_be_bytes());
         out[6..8].copy_from_slice(&self.checksum.to_be_bytes());
 
@@ -29,8 +29,8 @@ impl UdpPacketHeader {
 impl UdpPacketHeader {
     pub fn from_bytes(bytes: [u8; 8]) -> Self {
         UdpPacketHeader {
-            src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()).into(),
-            dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()).into(),
+            src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()),
+            dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()),
             length: u16::from_be_bytes(bytes[4..6].try_into().unwrap()),
             checksum: u16::from_be_bytes(bytes[6..8].try_into().unwrap()),
         }

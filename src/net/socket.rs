@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::hash::Hash;
 use core::net::Ipv4Addr;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -26,6 +25,13 @@ lazy_static! {
     static ref SOCKET_REGISTRY: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
 }
 
+pub type Port = u16;
+
+// pub struct SocketAddr {
+//     address: Ipv4Addr,
+//     port: u16,
+// }
+
 struct RegistryKey {
     waker: AtomicWaker,
     packet_buffer: ArrayQueue<SocketResponse>,
@@ -39,12 +45,12 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             return;
         }
         IPProtocol::Udp => {
-            let Ok(header_bytes) = packet.data[0..8].try_into() else {
-                log::warn!("UDP packet wasnt long enough to have a header, dropping");
+            let Ok(data) = packet.data[0..8].try_into() else {
+                log::warn!("udp packet wasnt even long enough to have a header");
                 return;
             };
 
-            let packet_header = udp::UdpPacketHeader::from_bytes(header_bytes);
+            let packet_header = udp::UdpPacketHeader::from_bytes(data);
 
             let mut new_data = Vec::new();
             new_data.extend_from_slice(&packet.data[8..]);
@@ -88,15 +94,6 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     registry_key.waker.wake();
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct Port(pub u16);
-
-impl From<u16> for Port {
-    fn from(value: u16) -> Self {
-        Port(value)
-    }
-}
-
 #[derive(Debug)]
 pub enum SocketError {
     PortAlreadyInUse,
@@ -131,7 +128,7 @@ impl<'a> From<&mut SocketHandle<'a>> for IPProtocol {
 /// Held by a user to indicate that they have ownership over the send/recv of a specific port
 pub enum SocketHandle<'a> {
     /// UDP just contains a port because it is connectionless
-    Udp(Port),
+    Udp(u16),
     Tcp(tcp::TcpSocket<'a>),
 }
 

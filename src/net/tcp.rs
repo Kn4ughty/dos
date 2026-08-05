@@ -104,8 +104,8 @@ impl<'a> TcpSegmentHeader<'a> {
 
     fn to_bytes(&self) -> [u8; 20] {
         let mut out = [0_u8; 20];
-        out[0..2].copy_from_slice(&self.src_port.0.to_be_bytes());
-        out[2..4].copy_from_slice(&self.dst_port.0.to_be_bytes());
+        out[0..2].copy_from_slice(&self.src_port.to_be_bytes());
+        out[2..4].copy_from_slice(&self.dst_port.to_be_bytes());
 
         out[4..8].copy_from_slice(&self.sequence_num.to_be_bytes());
 

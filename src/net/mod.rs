@@ -275,7 +275,7 @@ pub async fn ncu(args: &[&str]) {
 
     // TODO. Generate random num for source port
     let Ok(mut handle) =
-        socket::SocketHandle::new(13.into(), interface.ip, socket::SocketProtocolType::Udp)
+        socket::SocketHandle::new(13, interface.ip, socket::SocketProtocolType::Udp)
     else {
         log::error!("Could not obtain handle to port");
         return;
