@@ -10,13 +10,13 @@ use hashbrown::HashMap;
 use lazy_static::lazy_static;
 
 use super::IPv4Packet;
-use super::udp::UdpPacket;
 
 use crate::net::ip;
 use crate::net::ip::IPProtocol;
-use crate::net::tcp;
-use crate::net::udp;
 use crate::sync::spinlock::Mutex;
+
+pub mod tcp;
+pub mod udp;
 
 /// How many packets get held before being dropped
 const SOCKET_RESPONSE_QUEUE_BUFFER_LENGTH: usize = 10;
@@ -27,10 +27,10 @@ lazy_static! {
 
 pub type Port = u16;
 
-// pub struct SocketAddr {
-//     address: Ipv4Addr,
-//     port: u16,
-// }
+pub struct SocketAddr {
+    address: Ipv4Addr,
+    port: u16,
+}
 
 struct RegistryKey {
     waker: AtomicWaker,
@@ -129,7 +129,7 @@ impl<'a> From<&mut SocketHandle<'a>> for IPProtocol {
 pub enum SocketHandle<'a> {
     /// UDP just contains a port because it is connectionless
     Udp(u16),
-    Tcp(tcp::TcpSocket<'a>),
+    Tcp(tcp::TcpListener<'a>),
 }
 
 impl<'a> SocketHandle<'a> {

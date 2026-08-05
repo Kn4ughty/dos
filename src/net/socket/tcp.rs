@@ -1,4 +1,4 @@
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, SocketAddr};
 
 use alloc::vec::Vec;
 use crossbeam_queue::ArrayQueue;
@@ -11,27 +11,126 @@ use crate::net::{
 use bitflags::bitflags;
 use socket::Port;
 
-/// Manages all connections for a particular tcp socket
-pub struct TcpSocket<'a> {
+pub struct TcpListener<'a> {
     pub port: Port,
     binding_addresss: Ipv4Addr,
     connections: Vec<TcpConnection<'a>>,
 }
 
-impl<'a> TcpSocket<'a> {
-    pub fn new(port: Port, binding_addresss: Ipv4Addr) -> TcpSocket<'a> {
-        TcpSocket {
+impl<'a> TcpListener<'a> {
+    #[must_use]
+    pub fn new(port: Port, binding_addresss: Ipv4Addr) -> TcpListener<'a> {
+        TcpListener {
             port,
             binding_addresss,
             connections: Vec::new(),
         }
     }
 
-    // maybe could return a TcpConnection object.
-    // However self then needs to somehow send incoming packets into that TcpConnection
-    // legitimate use case for Arc<Mutex<>> ?
-    pub async fn connect(&mut self, dest_ip: Ipv4Addr, dest_port: Port) -> ! {
+    /// Waits for an incoming connection, and then returns a handle to that connection
+    pub async fn accept(&self) -> TcpConnection {
         todo!()
+    }
+}
+
+pub struct TcpConnection<'a> {
+    state: TcpConnectionState,
+    src_port: Port,
+    dest_ip: Ipv4Addr,
+    dst_port: Port,
+    current_squence_num: u32,
+    current_ack_num: u32,
+
+    // this kind of duplicates data since there is also another buffer in the segment handling code
+    // but i think this is fine since this is a TCP specific buffer, and the other one is an
+    // application level buffer. Plus i'm already not being memory efficient so a little more
+    // duplication wont kill me
+    sugment_buffer: ArrayQueue<TcpSegment<'a>>,
+}
+
+impl<'a> TcpConnection<'a> {
+    /// The source port is picked randomly from the (https://en.wikipedia.org/wiki/Ephemeral_port)[Ephemeral port] range
+    pub fn new(address: SocketAddr) -> Self {
+        TcpConnection {
+            state: TcpConnectionState::Closed,
+            current_ack_num: 0,
+            current_squence_num: 800, // Should be random but this will still probably work
+            src_port,
+            dest_ip,
+            dst_port,
+            sugment_buffer: ArrayQueue::new(TCP_WINDOW_SIZE as usize),
+        }
+    }
+
+    /// Small helper function
+    /// Delete me if used in <3 places
+    async fn get_interface(&self) -> Result<net::Interface, TcpError> {
+        net::get_inferface_for_ip_via_subnet(self.dest_ip)
+            .await
+            .ok_or(TcpError::NoInterfaceAvailable)
+    }
+
+    /// Helper function to create a tcp segment based on the current state
+    fn create_base_segment(&self) -> TcpSegment<'a> {
+        let header = TcpSegmentHeader {
+            src_port: self.src_port,
+            dst_port: self.dst_port,
+            sequence_num: self.current_squence_num,
+            ack_num: self.current_ack_num,
+            data_offset: 0,
+            flags: TcpSegmentFlags::empty(),
+            window_size: TCP_WINDOW_SIZE,
+            checksum: 0,
+            urgent_pointer: 0,
+            options: &[],
+        };
+
+        TcpSegment { header, data: &[] }
+    }
+
+    pub async fn connect(&mut self) -> Result<(), TcpError> {
+        if self.state != TcpConnectionState::Closed {
+            return Err(TcpError::ConnectionAlreadyEstablished);
+        }
+        // Send SYN
+        let mut segment = self.create_base_segment();
+        segment.header.flags = segment.header.flags.union(TcpSegmentFlags::SYN);
+        self.send_segment(segment).await?;
+        // Wait for SYN+ACK
+
+        // That means that at this point i need a raw listener to that port, so that i can handle
+        // that packet manually. That means that I will have to change the current abstraction.
+        // One way to handle it is to have two socket types, a rawSocketHandle, which does
+        // OHOH no the socket code has two socket types, where udp is simple and then a TCP socket
+        // wraps a tcp connection manager, which then handles all its own internals.
+        //  I think somehting like that will work
+
+        // Send ACK
+
+        // Established!!
+        Ok(())
+    }
+
+    async fn send_segment(&mut self, segment: TcpSegment<'a>) -> Result<(), TcpError> {
+        let segment_bytes = segment.to_bytes();
+
+        let source_ip = if self.dest_ip.is_loopback() {
+            Ipv4Addr::LOCALHOST
+        } else {
+            self.get_interface().await?.ip
+        };
+
+        let ip_packet = ip::IPv4Packet::from_source_dest_and_data(
+            source_ip,
+            self.dest_ip,
+            ip::IPProtocol::Tcp,
+            segment_bytes.as_slice(),
+        )
+        .map_err(TcpError::IpError)?;
+
+        ip::send_ipv4_packet(ip_packet)
+            .await
+            .map_err(TcpError::IpError)
     }
 }
 
@@ -180,103 +279,3 @@ enum TcpConnectionState {
 }
 
 const TCP_WINDOW_SIZE: u16 = 10;
-
-pub struct TcpConnection<'a> {
-    state: TcpConnectionState,
-    src_port: Port,
-    dest_ip: Ipv4Addr,
-    dst_port: Port,
-    current_squence_num: u32,
-    current_ack_num: u32,
-
-    // this kind of duplicates data since there is also another buffer in the segment handling code
-    // but i think this is fine since this is a TCP specific buffer, and the other one is an
-    // application level buffer. Plus i'm already not being memory efficient so a little more
-    // duplication wont kill me
-    sugment_buffer: ArrayQueue<TcpSegment<'a>>,
-}
-
-impl<'a> TcpConnection<'a> {
-    pub fn new(dest_ip: Ipv4Addr, dst_port: Port, src_port: Port) -> Self {
-        TcpConnection {
-            state: TcpConnectionState::Closed,
-            current_ack_num: 0,
-            current_squence_num: 800, // Should be random but this will still probably work
-            src_port,
-            dest_ip,
-            dst_port,
-            sugment_buffer: ArrayQueue::new(TCP_WINDOW_SIZE as usize),
-        }
-    }
-
-    /// Small helper function
-    /// Delete me if used in <3 places
-    async fn get_interface(&self) -> Result<net::Interface, TcpError> {
-        net::get_inferface_for_ip_via_subnet(self.dest_ip)
-            .await
-            .ok_or(TcpError::NoInterfaceAvailable)
-    }
-
-    /// Helper function to create a tcp segment based on the current state
-    fn create_base_segment(&self) -> TcpSegment<'a> {
-        let header = TcpSegmentHeader {
-            src_port: self.src_port,
-            dst_port: self.dst_port,
-            sequence_num: self.current_squence_num,
-            ack_num: self.current_ack_num,
-            data_offset: 0,
-            flags: TcpSegmentFlags::empty(),
-            window_size: TCP_WINDOW_SIZE,
-            checksum: 0,
-            urgent_pointer: 0,
-            options: &[],
-        };
-
-        TcpSegment { header, data: &[] }
-    }
-
-    pub async fn connect(&mut self) -> Result<(), TcpError> {
-        if self.state != TcpConnectionState::Closed {
-            return Err(TcpError::ConnectionAlreadyEstablished);
-        }
-        // Send SYN
-        let mut segment = self.create_base_segment();
-        segment.header.flags = segment.header.flags.union(TcpSegmentFlags::SYN);
-        self.send_segment(segment).await?;
-        // Wait for SYN+ACK
-
-        // That means that at this point i need a raw listener to that port, so that i can handle
-        // that packet manually. That means that I will have to change the current abstraction.
-        // One way to handle it is to have two socket types, a rawSocketHandle, which does
-        // OHOH no the socket code has two socket types, where udp is simple and then a TCP socket
-        // wraps a tcp connection manager, which then handles all its own internals.
-        //  I think somehting like that will work
-
-        // Send ACK
-
-        // Established!!
-        Ok(())
-    }
-
-    async fn send_segment(&mut self, segment: TcpSegment<'a>) -> Result<(), TcpError> {
-        let segment_bytes = segment.to_bytes();
-
-        let source_ip = if self.dest_ip.is_loopback() {
-            Ipv4Addr::LOCALHOST
-        } else {
-            self.get_interface().await?.ip
-        };
-
-        let ip_packet = ip::IPv4Packet::from_source_dest_and_data(
-            source_ip,
-            self.dest_ip,
-            ip::IPProtocol::Tcp,
-            segment_bytes.as_slice(),
-        )
-        .map_err(TcpError::IpError)?;
-
-        ip::send_ipv4_packet(ip_packet)
-            .await
-            .map_err(TcpError::IpError)
-    }
-}

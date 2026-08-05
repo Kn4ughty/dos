@@ -28,8 +28,6 @@ mod icmp;
 mod ip;
 mod nic;
 pub mod socket;
-pub mod tcp; // unpub me once tcp api finished. (here to suppress unused warnings)
-mod udp;
 
 use ethernet::{EthernetFrame, EthernetPacket};
 

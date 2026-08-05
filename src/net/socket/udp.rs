@@ -1,15 +1,29 @@
-use super::socket::Port;
 use alloc::vec::Vec;
 
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
+
+use super::socket::{Port, SocketAddr};
+use crate::sync::spinlock::Mutex;
+
+lazy_static! {
+    static ref SOCKET_REGISTRY: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
+}
+
+pub struct UdpSocket {
+    src: SocketAddr,
+    dest: SocketAddr,
+}
+
 #[derive(Clone, Copy, Debug)]
-pub struct UdpPacketHeader {
+struct UdpPacketHeader {
     pub src_port: Port,
     pub dst_port: Port,
     pub length: u16,
     pub checksum: u16,
 }
 
-pub struct UdpPacket<'a> {
+struct UdpPacket<'a> {
     header: UdpPacketHeader,
     data: &'a [u8],
 }
