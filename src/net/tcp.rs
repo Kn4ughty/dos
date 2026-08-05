@@ -273,10 +273,10 @@ impl<'a> TcpConnection<'a> {
             ip::IPProtocol::Tcp,
             segment_bytes.as_slice(),
         )
-        .map_err(|e| TcpError::IpError(e))?;
+        .map_err(TcpError::IpError)?;
 
         ip::send_ipv4_packet(ip_packet)
             .await
-            .map_err(|e| TcpError::IpError(e))
+            .map_err(TcpError::IpError)
     }
 }

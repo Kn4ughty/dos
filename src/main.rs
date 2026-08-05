@@ -50,8 +50,7 @@ use core::panic::PanicInfo;
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    use log::error;
-    error!("{}", info);
+    log::error!("{}", info);
     os::hlt_loop();
 }
 
