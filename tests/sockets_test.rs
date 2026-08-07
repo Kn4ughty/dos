@@ -6,8 +6,9 @@
 
 extern crate alloc;
 
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, SocketAddrV4};
 
+use alloc::vec::Vec;
 use bootloader::{BootInfo, entry_point};
 use futures_util::StreamExt;
 
@@ -51,16 +52,18 @@ async fn run_tests() {
 
 async fn send_udp_packet_to_self() {
     // port 2 and 3 are reserved, so they shouldn't be used by anything else
-    let mut incoming_socket = SocketHandle::new(2, Ipv4Addr::LOCALHOST, SocketProtocolType::Udp)
-        .expect("Can obtain port 2");
+    let mut incoming_socket =
+        udp::UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 2)).expect("Can obtain port 2");
 
-    let mut outgoing_socket = SocketHandle::new(3, Ipv4Addr::LOCALHOST, SocketProtocolType::Udp)
-        .expect("Can obtain port 3");
+    let outgoing_socket =
+        udp::UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3)).expect("Can obtain port 3");
 
     let test_data = b"This is some test bytes that should survive transmission";
+    let mut dv = Vec::with_capacity(test_data.len());
+    dv.extend_from_slice(test_data);
 
     outgoing_socket
-        .send_data(Ipv4Addr::LOCALHOST, 2, test_data)
+        .send_data(Ipv4Addr::LOCALHOST, 2, dv)
         .await
         .expect("Can send UDP data");
     log::debug!("Sent packet on port 2");
@@ -70,7 +73,7 @@ async fn send_udp_packet_to_self() {
         .await
         .expect("socket not force closed ");
 
-    assert_eq!(response.data.as_slice(), test_data);
+    assert_eq!(response.packet.data.as_slice(), test_data);
 }
 
 #[panic_handler]

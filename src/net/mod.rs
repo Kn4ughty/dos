@@ -1,6 +1,6 @@
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::{
-    net::Ipv4Addr,
+    net::{Ipv4Addr, SocketAddrV4},
     str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
@@ -263,8 +263,7 @@ pub async fn ncu(args: &[&str]) {
             println!("Invalid port: {e:?}");
             return;
         }
-    }
-    .into();
+    };
 
     let Some(interface) = get_inferface_for_ip_via_subnet(destination).await else {
         log::error!("No interface found");
@@ -272,14 +271,13 @@ pub async fn ncu(args: &[&str]) {
     };
 
     // TODO. Generate random num for source port
-    let Ok(mut handle) =
-        socket::SocketHandle::new(13, interface.ip, socket::SocketProtocolType::Udp)
+    let Ok(mut handle) = socket::udp::UdpSocket::bind(SocketAddrV4::new(interface.ip, 12_456))
     else {
         log::error!("Could not obtain handle to port");
         return;
     };
 
-    let Ok(()) = handle.send_data(destination, dst_port, &[]).await else {
+    let Ok(()) = handle.send_data(destination, dst_port, vec![]).await else {
         log::error!("could not send data");
         return;
     };
@@ -291,7 +289,7 @@ pub async fn ncu(args: &[&str]) {
     match response {
         Either::Left((response, _)) => {
             let response = response.unwrap();
-            let s = String::from_utf8_lossy_owned(response.data);
+            let s = String::from_utf8_lossy_owned(response.packet.data);
             println!("{:?}", s);
         }
         Either::Right(_) => {
