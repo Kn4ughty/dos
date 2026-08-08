@@ -21,24 +21,24 @@ use crate::sync::spinlock::Mutex;
 const TCP_WINDOW_SIZE: u16 = 10;
 
 lazy_static! {
-    static ref OPEN_PORTS: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
+    static ref REGISTRY: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
 }
 
 pub struct RegistryKey {
     binding_addresss: Ipv4Addr,
     /// From source address to a queue
-    packet_queue: HashMap<SocketAddrV4, ArrayQueue<TcpSegment>>,
+    packet_queue: HashMap<SocketAddrV4, TcpConnection>,
 }
 
-// this function has no protection against a conection opening flooding attack.
-// I will allocate all the requried resources and then run out of memory :p
+// this function has no protection against a connection opening flooding attack.
+// I will allocate all the required resources and then run out of memory :p
 pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     let Ok(segment) = TcpSegment::from_bytes(packet.data) else {
         log::error!("Unable to turn ip packet into TcpSegment");
         return;
     };
 
-    let mut registry = OPEN_PORTS.lock();
+    let mut registry = REGISTRY.lock();
     let Some(key) = registry.get_mut(&segment.header.dst_port) else {
         log::debug!(
             "No open port ({})for incoming tcp packet",
@@ -77,22 +77,77 @@ impl<'a> TcpListener {
     }
 
     /// Waits for an incoming connection, and then returns a handle to that connection
-    pub async fn accept(&self) -> TcpConnection {
+    pub async fn accept(&self) -> TcpStream {
         todo!()
     }
 }
+
+/// User accessible access to a TCP connection with a remote host
+pub struct TcpStream {
+    src_port: Port,
+    destination: SocketAddrV4,
+}
+
+impl TcpStream {
+    pub async fn connect(target: SocketAddrV4) -> Result<TcpStream, TcpError> {
+        todo!()
+        // Create a new tcp connection object into the registry
+
+        // setup the connection
+        // make sure it is connected
+
+        // done
+    }
+
+    /// Writes into the buffer and returns how many bytes were read
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, TcpError> {
+        let mut registry = REGISTRY.lock();
+        let reg_key = registry
+            .get_mut(&self.src_port)
+            .expect("port should exist for outgoing connection");
+
+        let connection = reg_key
+            .packet_queue
+            .get_mut(&self.destination)
+            .ok_or(TcpError::ConnectionDoesntExist)?;
+
+        Ok(connection.read(buf))
+    }
+}
+
+// struct SegmentBuffer {
+//     buffer: ,
+//     last_filled: usize,
+// }
+//
+// impl SegmentBuffer {
+//     pub fn new() -> Self {
+//         SegmentBuffer {
+//             buffer: [const { None }; TCP_WINDOW_SIZE as usize],
+//             last_filled: 0,
+//         }
+//     }
+//
+//     pub fn get_next(&mut self) -> Option<TcpSegment> {
+//         self.buffer.sort();
+//         let res = &mut self.buffer[0];
+//         res.take()
+//     }
+//
+//     // ???
+// }
 
 struct TcpConnection {
     state: TcpConnectionState,
     src_port: Port, // DATA DUPLICATION :(
     destination: SocketAddrV4,
     current_squence_num: u32,
+    /// most recent packet with have sent an ack for
     current_ack_num: u32,
-    // this kind of duplicates data since there is also another buffer in the segment handling code
-    // but i think this is fine since this is a TCP specific buffer, and the other one is an
-    // application level buffer. Plus i'm already not being memory efficient so a little more
-    // duplication wont kill me
-    // segment_buffer: ArrayQueue<TcpSegment>,
+    /// Offset pointer to the last index in the top segment, for when the user supplied buffer is
+    /// not big enough to hold the entire segment
+    last_consumed_byte: usize,
+    segment_buffer: [Option<TcpSegment>; TCP_WINDOW_SIZE as usize],
 }
 
 impl TcpConnection {
@@ -101,10 +156,11 @@ impl TcpConnection {
         TcpConnection {
             state: TcpConnectionState::Closed,
             current_ack_num: 0,
-            current_squence_num: 800, // Should be random but this will still probably work
+            current_squence_num: 800, // Should be random but this will work
             src_port: EphemeralPortTracker::get_new(),
             destination,
-            // segment_buffer: ArrayQueue::new(TCP_WINDOW_SIZE as usize),
+            last_consumed_byte: 0,
+            segment_buffer: [const { None }; TCP_WINDOW_SIZE as usize],
         }
     }
 
@@ -147,13 +203,6 @@ impl TcpConnection {
         self.send_segment(segment).await?;
         // Wait for SYN+ACK
 
-        // That means that at this point i need a raw listener to that port, so that i can handle
-        // that packet manually. That means that I will have to change the current abstraction.
-        // One way to handle it is to have two socket types, a rawSocketHandle, which does
-        // OHOH no the socket code has two socket types, where udp is simple and then a TCP socket
-        // wraps a tcp connection manager, which then handles all its own internals.
-        //  I think somehting like that will work
-
         // Send ACK
 
         // Established!!
@@ -180,6 +229,32 @@ impl TcpConnection {
         ip::send_ipv4_packet(ip_packet)
             .await
             .map_err(TcpError::IpError)
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> usize {
+        let mut idx = 0;
+
+        loop {
+            let mut should_break = true;
+
+            for segment in self.segment_buffer.iter().filter_map(|s| *s) {
+                if self.current_ack_num == segment.header.sequence_num {
+                    should_break = false;
+                    break;
+                }
+            }
+
+            if should_break {
+                break;
+            }
+        }
+
+        // ?
+
+        // while let Some(seg) = self.segment_buffer.get_next() {
+        //     self.segment_buffer.f
+        // }
+        idx
     }
 }
 
@@ -318,10 +393,32 @@ impl TcpSegment {
     }
 }
 
+impl PartialEq for TcpSegment {
+    fn eq(&self, other: &Self) -> bool {
+        // i am skeptical of this
+        self.header.sequence_num == other.header.sequence_num
+    }
+}
+
+impl Eq for TcpSegment {}
+
+impl PartialOrd for TcpSegment {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TcpSegment {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.header.sequence_num.cmp(&other.header.sequence_num)
+    }
+}
+
 #[derive(Debug)]
 pub enum TcpError {
     NoInterfaceAvailable,
     ConnectionAlreadyEstablished,
+    ConnectionDoesntExist,
     IpError(IpError),
 }
 
