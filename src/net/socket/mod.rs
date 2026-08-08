@@ -1,15 +1,24 @@
 use super::IPv4Packet;
 
-use crate::net::ip::IPProtocol;
+use crate::net::ip::{self, IPProtocol};
 
+pub mod tcp;
 pub mod udp;
 
 pub type Port = u16;
 
+#[derive(Debug)]
+pub enum SocketError {
+    PortAlreadyInUse,
+    DataWasTooLong,
+    HigherLevelPacketWasTooShort,
+    IpError(ip::IpError),
+}
+
 pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     match packet.header.protocol {
         IPProtocol::Tcp => {
-            log::debug!("dropping TCP packet");
+            tcp::handle_incoming_packet(packet);
         }
         IPProtocol::Udp => {
             udp::handle_incoming_packet(packet);

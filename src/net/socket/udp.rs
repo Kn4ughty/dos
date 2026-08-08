@@ -4,17 +4,18 @@ use core::{
     pin::Pin,
     task::{Context, Poll},
 };
+
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, task::AtomicWaker};
-
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 
-use super::Port;
 use crate::{
     net::ip::{self, IPv4Packet},
     sync::spinlock::Mutex,
 };
+
+use super::{Port, SocketError};
 
 const PACKET_QUEUE_LEN: usize = 10;
 
@@ -26,13 +27,6 @@ struct RegistryKey {
     waker: AtomicWaker,
     incoming_packet_buffer: ArrayQueue<UdpPacketWrapper>,
     binding_address: Ipv4Addr,
-}
-
-#[derive(Debug)]
-pub enum SocketError {
-    PortAlreadyInUse,
-    DataWasTooLong,
-    IpError(ip::IpError),
 }
 
 pub struct UdpPacketWrapper {

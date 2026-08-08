@@ -1,25 +1,74 @@
-use core::net::{Ipv4Addr, SocketAddr};
-
+use alloc::vec;
 use alloc::vec::Vec;
+use core::{
+    net::{Ipv4Addr, SocketAddrV4},
+    range::Range,
+};
+
+use bitflags::bitflags;
 use crossbeam_queue::ArrayQueue;
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
+use socket::Port;
 
 use crate::net::{
     self,
-    ip::{self, IpError},
-    socket,
+    ip::{self, IPv4Packet, IpError},
+    socket::{self, SocketError},
 };
-use bitflags::bitflags;
-use socket::Port;
+use crate::sync::spinlock::Mutex;
 
-pub struct TcpListener<'a> {
-    pub port: Port,
-    binding_addresss: Ipv4Addr,
-    connections: Vec<TcpConnection<'a>>,
+const TCP_WINDOW_SIZE: u16 = 10;
+
+lazy_static! {
+    static ref OPEN_PORTS: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
 }
 
-impl<'a> TcpListener<'a> {
+pub struct RegistryKey {
+    binding_addresss: Ipv4Addr,
+    /// From source address to a queue
+    packet_queue: HashMap<SocketAddrV4, ArrayQueue<TcpSegment>>,
+}
+
+// this function has no protection against a conection opening flooding attack.
+// I will allocate all the requried resources and then run out of memory :p
+pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
+    let Ok(segment) = TcpSegment::from_bytes(packet.data) else {
+        log::error!("Unable to turn ip packet into TcpSegment");
+        return;
+    };
+
+    let mut registry = OPEN_PORTS.lock();
+    let Some(key) = registry.get_mut(&segment.header.dst_port) else {
+        log::debug!(
+            "No open port ({})for incoming tcp packet",
+            segment.header.dst_port
+        );
+        return;
+    };
+
+    let socket_addr = SocketAddrV4::new(packet.header.source_address, segment.header.src_port);
+    match key.packet_queue.entry(socket_addr) {
+        hashbrown::hash_map::Entry::Vacant(v) => {
+            v.insert(ArrayQueue::new(TCP_WINDOW_SIZE as usize));
+        }
+        hashbrown::hash_map::Entry::Occupied(o) => {
+            if o.into_mut().push(segment).is_err() {
+                log::error!("The tcp window is full! :(");
+            }
+        }
+    }
+}
+
+pub struct TcpListener {
+    pub port: Port,
+    binding_addresss: Ipv4Addr,
+    connections: Vec<TcpConnection>,
+}
+
+impl<'a> TcpListener {
     #[must_use]
-    pub fn new(port: Port, binding_addresss: Ipv4Addr) -> TcpListener<'a> {
+    pub fn bind(port: Port, binding_addresss: Ipv4Addr) -> TcpListener {
         TcpListener {
             port,
             binding_addresss,
@@ -33,48 +82,45 @@ impl<'a> TcpListener<'a> {
     }
 }
 
-pub struct TcpConnection<'a> {
+struct TcpConnection {
     state: TcpConnectionState,
-    src_port: Port,
-    dest_ip: Ipv4Addr,
-    dst_port: Port,
+    src_port: Port, // DATA DUPLICATION :(
+    destination: SocketAddrV4,
     current_squence_num: u32,
     current_ack_num: u32,
-
     // this kind of duplicates data since there is also another buffer in the segment handling code
     // but i think this is fine since this is a TCP specific buffer, and the other one is an
     // application level buffer. Plus i'm already not being memory efficient so a little more
     // duplication wont kill me
-    sugment_buffer: ArrayQueue<TcpSegment<'a>>,
+    // segment_buffer: ArrayQueue<TcpSegment>,
 }
 
-impl<'a> TcpConnection<'a> {
+impl TcpConnection {
     /// The source port is picked randomly from the (https://en.wikipedia.org/wiki/Ephemeral_port)[Ephemeral port] range
-    pub fn new(address: SocketAddr) -> Self {
+    pub fn new(destination: SocketAddrV4) -> Self {
         TcpConnection {
             state: TcpConnectionState::Closed,
             current_ack_num: 0,
             current_squence_num: 800, // Should be random but this will still probably work
-            src_port,
-            dest_ip,
-            dst_port,
-            sugment_buffer: ArrayQueue::new(TCP_WINDOW_SIZE as usize),
+            src_port: EphemeralPortTracker::get_new(),
+            destination,
+            // segment_buffer: ArrayQueue::new(TCP_WINDOW_SIZE as usize),
         }
     }
 
     /// Small helper function
     /// Delete me if used in <3 places
     async fn get_interface(&self) -> Result<net::Interface, TcpError> {
-        net::get_inferface_for_ip_via_subnet(self.dest_ip)
+        net::get_inferface_for_ip_via_subnet(*self.destination.ip())
             .await
             .ok_or(TcpError::NoInterfaceAvailable)
     }
 
     /// Helper function to create a tcp segment based on the current state
-    fn create_base_segment(&self) -> TcpSegment<'a> {
+    fn create_base_segment(&self) -> TcpSegment {
         let header = TcpSegmentHeader {
             src_port: self.src_port,
-            dst_port: self.dst_port,
+            dst_port: self.destination.port(),
             sequence_num: self.current_squence_num,
             ack_num: self.current_ack_num,
             data_offset: 0,
@@ -82,10 +128,13 @@ impl<'a> TcpConnection<'a> {
             window_size: TCP_WINDOW_SIZE,
             checksum: 0,
             urgent_pointer: 0,
-            options: &[],
+            options: vec![],
         };
 
-        TcpSegment { header, data: &[] }
+        TcpSegment {
+            header,
+            data: vec![],
+        }
     }
 
     pub async fn connect(&mut self) -> Result<(), TcpError> {
@@ -111,10 +160,10 @@ impl<'a> TcpConnection<'a> {
         Ok(())
     }
 
-    async fn send_segment(&mut self, segment: TcpSegment<'a>) -> Result<(), TcpError> {
+    async fn send_segment(&mut self, segment: TcpSegment) -> Result<(), TcpError> {
         let segment_bytes = segment.to_bytes();
 
-        let source_ip = if self.dest_ip.is_loopback() {
+        let source_ip = if self.destination.ip().is_loopback() {
             Ipv4Addr::LOCALHOST
         } else {
             self.get_interface().await?.ip
@@ -122,7 +171,7 @@ impl<'a> TcpConnection<'a> {
 
         let ip_packet = ip::IPv4Packet::from_source_dest_and_data(
             source_ip,
-            self.dest_ip,
+            *self.destination.ip(),
             ip::IPProtocol::Tcp,
             segment_bytes.as_slice(),
         )
@@ -134,7 +183,7 @@ impl<'a> TcpConnection<'a> {
     }
 }
 
-struct TcpSegmentHeader<'a> {
+struct TcpSegmentHeader {
     src_port: Port,
     dst_port: Port,
     sequence_num: u32,
@@ -147,12 +196,12 @@ struct TcpSegmentHeader<'a> {
     urgent_pointer: u16,
     /// This is present if the `data_offset` is greater than 5
     /// If it doesn't exist, the slice is just of size 0
-    options: &'a [u8],
+    options: Vec<u8>,
 }
 
-struct TcpSegment<'a> {
-    header: TcpSegmentHeader<'a>,
-    data: &'a [u8],
+struct TcpSegment {
+    header: TcpSegmentHeader,
+    data: Vec<u8>,
 }
 
 bitflags! {
@@ -178,7 +227,7 @@ bitflags! {
     }
 }
 
-impl<'a> TcpSegmentHeader<'a> {
+impl TcpSegmentHeader {
     fn byte_count(&self) -> usize {
         let options_len = self.options.len();
 
@@ -220,9 +269,21 @@ impl<'a> TcpSegmentHeader<'a> {
         out
     }
 
-    fn from_bytes(bytes: &'a [u8]) -> Self {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, SocketError> {
+        if bytes.len() > 20 {
+            return Err(SocketError::HigherLevelPacketWasTooShort);
+        }
+
         let data_offset = bytes[12] & 0xF0;
-        Self {
+
+        if bytes.len() > 20 + Self::options_length(data_offset) {
+            return Err(SocketError::HigherLevelPacketWasTooShort);
+        }
+
+        let mut options_vec = Vec::new();
+        options_vec.extend_from_slice(&bytes[20..20 + Self::options_length(data_offset)]);
+
+        Ok(Self {
             src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()).into(),
             dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()).into(),
             sequence_num: u32::from_be_bytes(bytes[4..8].try_into().unwrap()),
@@ -232,12 +293,12 @@ impl<'a> TcpSegmentHeader<'a> {
             window_size: u16::from_be_bytes(bytes[14..16].try_into().unwrap()),
             checksum: u16::from_be_bytes(bytes[16..18].try_into().unwrap()),
             urgent_pointer: u16::from_be_bytes(bytes[18..20].try_into().unwrap()),
-            options: &bytes[20..20 + Self::options_length(data_offset)],
-        }
+            options: options_vec,
+        })
     }
 }
 
-impl<'a> TcpSegment<'_> {
+impl TcpSegment {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.header.byte_count() + self.data.len());
         out.extend_from_slice(&self.header.to_bytes());
@@ -246,13 +307,14 @@ impl<'a> TcpSegment<'_> {
         out
     }
 
-    pub fn from_bytes(bytes: &'a [u8]) -> TcpSegment<'a> {
-        let header = TcpSegmentHeader::from_bytes(bytes);
+    pub fn from_bytes(bytes: &[u8]) -> Result<TcpSegment, SocketError> {
+        let header = TcpSegmentHeader::from_bytes(bytes)?;
         let count = header.byte_count();
-        TcpSegment {
-            header,
-            data: &bytes[count..],
-        }
+
+        let mut dv = Vec::new();
+        dv.extend_from_slice(&bytes[count..]);
+
+        Ok(TcpSegment { header, data: dv })
     }
 }
 
@@ -278,4 +340,34 @@ enum TcpConnectionState {
     Closing,
 }
 
-const TCP_WINDOW_SIZE: u16 = 10;
+static LAST_EPHEMERAL_PORT_REGISTERED: Mutex<EphemeralPortTracker> =
+    Mutex::new(EphemeralPortTracker::new());
+
+struct EphemeralPortTracker {
+    range: Range<u16>,
+    last_registered: u16,
+}
+
+impl EphemeralPortTracker {
+    const fn new() -> Self {
+        let range = Range {
+            start: 49152_u16,
+            end: u16::MAX,
+        };
+        EphemeralPortTracker {
+            range,
+            last_registered: range.start,
+        }
+    }
+
+    fn get_new() -> Port {
+        let lepr = LAST_EPHEMERAL_PORT_REGISTERED.lock();
+        let mut new = lepr.last_registered + 1;
+
+        if new >= lepr.range.end {
+            new = lepr.range.start
+        }
+
+        new
+    }
+}
