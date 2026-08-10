@@ -1,3 +1,5 @@
+use core::net::Ipv4Addr;
+
 use super::IPv4Packet;
 
 use crate::net::ip::{self, IPProtocol};
@@ -28,4 +30,10 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             unreachable!("Packet type should have been validated to be tcp or UDP before this")
         }
     }
+}
+
+fn should_accept_packet(destination_address: Ipv4Addr, binding_address: Ipv4Addr) -> bool {
+    binding_address.is_unspecified()
+        || destination_address.is_loopback()
+        || destination_address == binding_address
 }

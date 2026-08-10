@@ -11,7 +11,10 @@ use hashbrown::HashMap;
 use lazy_static::lazy_static;
 
 use crate::{
-    net::ip::{self, IPv4Packet},
+    net::{
+        ip::{self, IPv4Packet},
+        socket,
+    },
     sync::spinlock::Mutex,
 };
 
@@ -50,14 +53,14 @@ pub fn handle_incoming_packet(ip_packet: &IPv4Packet<'_>) {
         return;
     };
 
-    let accept_packet = registry_key.binding_address.is_unspecified()
-        || ip_packet.header.destination_address.is_loopback()
-        || ip_packet.header.destination_address == registry_key.binding_address;
-
-    if !accept_packet {
+    if !socket::should_accept_packet(
+        ip_packet.header.destination_address,
+        registry_key.binding_address,
+    ) {
         log::debug!(
-            "Dropping incoming TCP/UDP packet. Packet header: {:?}",
-            udp_packet.header
+            "Dropping UDP packet because did not match binding address. dest: {}, bind: {}",
+            ip_packet.header.destination_address,
+            registry_key.binding_address
         );
         return;
     }

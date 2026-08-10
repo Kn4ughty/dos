@@ -6,7 +6,6 @@ use core::{
 };
 
 use bitflags::bitflags;
-use crossbeam_queue::ArrayQueue;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use socket::Port;
@@ -14,7 +13,7 @@ use socket::Port;
 use crate::net::{
     self,
     ip::{self, IPv4Packet, IpError},
-    socket::{self, SocketError},
+    socket,
 };
 use crate::sync::spinlock::Mutex;
 
@@ -25,7 +24,7 @@ lazy_static! {
 }
 
 pub struct RegistryKey {
-    binding_addresss: Ipv4Addr,
+    binding_address: Ipv4Addr,
     /// From source address to a queue
     packet_queue: HashMap<SocketAddrV4, TcpConnection>,
 }
@@ -47,15 +46,26 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
         return;
     };
 
+    // check binding address
+    if !socket::should_accept_packet(packet.header.destination_address, key.binding_address) {
+        log::debug!(
+            "Dropping TCP packet because did not match binding address. dest: {}, bind: {}",
+            packet.header.destination_address,
+            key.binding_address
+        );
+        return;
+    }
+
     let socket_addr = SocketAddrV4::new(packet.header.source_address, segment.header.src_port);
     match key.packet_queue.entry(socket_addr) {
-        hashbrown::hash_map::Entry::Vacant(v) => {
-            v.insert(ArrayQueue::new(TCP_WINDOW_SIZE as usize));
-        }
         hashbrown::hash_map::Entry::Occupied(o) => {
-            if o.into_mut().push(segment).is_err() {
-                log::error!("The tcp window is full! :(");
+            if let Err(e) = o.into_mut().recieve_segment(packet) {
+                log::error!("tcp error: {e:?}");
             }
+        }
+        hashbrown::hash_map::Entry::Vacant(v) => {
+            // need to handle acking the connection in this case
+            v.insert(TcpConnection::new(socket_addr));
         }
     }
 }
@@ -115,28 +125,6 @@ impl TcpStream {
     }
 }
 
-// struct SegmentBuffer {
-//     buffer: ,
-//     last_filled: usize,
-// }
-//
-// impl SegmentBuffer {
-//     pub fn new() -> Self {
-//         SegmentBuffer {
-//             buffer: [const { None }; TCP_WINDOW_SIZE as usize],
-//             last_filled: 0,
-//         }
-//     }
-//
-//     pub fn get_next(&mut self) -> Option<TcpSegment> {
-//         self.buffer.sort();
-//         let res = &mut self.buffer[0];
-//         res.take()
-//     }
-//
-//     // ???
-// }
-
 struct TcpConnection {
     state: TcpConnectionState,
     src_port: Port, // DATA DUPLICATION :(
@@ -144,24 +132,35 @@ struct TcpConnection {
     current_squence_num: u32,
     /// most recent packet with have sent an ack for
     current_ack_num: u32,
-    /// Offset pointer to the last index in the top segment, for when the user supplied buffer is
-    /// not big enough to hold the entire segment
-    last_consumed_byte: usize,
+    last_read_byte: u32,
     segment_buffer: [Option<TcpSegment>; TCP_WINDOW_SIZE as usize],
 }
 
 impl TcpConnection {
-    /// The source port is picked randomly from the (https://en.wikipedia.org/wiki/Ephemeral_port)[Ephemeral port] range
+    /// The source port is picked randomly from the (<https://en.wikipedia.org/wiki/Ephemeral_port>)[Ephemeral port] range
     pub fn new(destination: SocketAddrV4) -> Self {
+        let random_seq_num = 0; // Should be random but this will work
         TcpConnection {
             state: TcpConnectionState::Closed,
             current_ack_num: 0,
-            current_squence_num: 800, // Should be random but this will work
+            current_squence_num: random_seq_num,
             src_port: EphemeralPortTracker::get_new(),
             destination,
-            last_consumed_byte: 0,
+            last_read_byte: random_seq_num,
             segment_buffer: [const { None }; TCP_WINDOW_SIZE as usize],
         }
+    }
+
+    pub fn recieve_segment(&mut self, ip_packet: &IPv4Packet) -> Result<(), TcpError> {
+        let Some(slot) = self.segment_buffer.iter_mut().find(|se| se.is_none()) else {
+            log::error!("TCP segment buffer is full! this shouldnt really happen :(");
+            return Err(TcpError::TcpSegmentBufferFull);
+        };
+        *slot = Some(TcpSegment::from_bytes(ip_packet.data)?);
+
+        // TODO. Check if need to ack the packet and stuff
+
+        Ok(())
     }
 
     /// Small helper function
@@ -232,15 +231,33 @@ impl TcpConnection {
     }
 
     pub fn read(&mut self, buf: &mut [u8]) -> usize {
-        let mut idx = 0;
+        // goal. Find the range of data starting from the last_read_byte to at most the current_ack_num
+        // Can be done in 2 loops. One to find the right segment sequence,
+        // and second loop to put that data into the buffer.
 
+        // let mut segments: Vec<&TcpSegment> = Vec::new();
+
+        let mut found_range = Range::from(self.last_read_byte..self.last_read_byte);
+
+        log::trace!("Entering read range finding loop");
         loop {
             let mut should_break = true;
+            for segment in &self.segment_buffer {
+                let Some(segment) = segment else { continue };
 
-            for segment in self.segment_buffer.iter().filter_map(|s| *s) {
-                if self.current_ack_num == segment.header.sequence_num {
+                let start_byte = segment.header.sequence_num;
+                let end_byte = start_byte
+                    + u32::try_from(segment.data.len())
+                        .expect("I do not handle tramissions bigger than 4gb");
+
+                // This segment extends the found range, or is in the middle of extending the range
+                if found_range.end == start_byte
+                    || (start_byte < found_range.start && end_byte > found_range.start)
+                {
+                    found_range.end = end_byte;
+
+                    // updated range this loop so keep looping
                     should_break = false;
-                    break;
                 }
             }
 
@@ -249,12 +266,13 @@ impl TcpConnection {
             }
         }
 
-        // ?
+        log::trace!("Updatable range into the buf is {:?}", found_range);
 
-        // while let Some(seg) = self.segment_buffer.get_next() {
-        //     self.segment_buffer.f
-        // }
-        idx
+        // Now need to go back into the segments, and write into buf, if the segment is within the
+        // range, and the buf can fit it.
+        todo!();
+
+        0
     }
 }
 
@@ -344,15 +362,15 @@ impl TcpSegmentHeader {
         out
     }
 
-    fn from_bytes(bytes: &[u8]) -> Result<Self, SocketError> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, TcpError> {
         if bytes.len() > 20 {
-            return Err(SocketError::HigherLevelPacketWasTooShort);
+            return Err(TcpError::HigherLevelPacketWasTooShort);
         }
 
         let data_offset = bytes[12] & 0xF0;
 
         if bytes.len() > 20 + Self::options_length(data_offset) {
-            return Err(SocketError::HigherLevelPacketWasTooShort);
+            return Err(TcpError::HigherLevelPacketWasTooShort);
         }
 
         let mut options_vec = Vec::new();
@@ -382,7 +400,7 @@ impl TcpSegment {
         out
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<TcpSegment, SocketError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<TcpSegment, TcpError> {
         let header = TcpSegmentHeader::from_bytes(bytes)?;
         let count = header.byte_count();
 
@@ -419,6 +437,8 @@ pub enum TcpError {
     NoInterfaceAvailable,
     ConnectionAlreadyEstablished,
     ConnectionDoesntExist,
+    TcpSegmentBufferFull,
+    HigherLevelPacketWasTooShort,
     IpError(IpError),
 }
 
