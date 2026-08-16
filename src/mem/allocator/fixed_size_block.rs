@@ -84,7 +84,7 @@ unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
             let mut allocator = self.lock();
 
             let Some(index) = layout_to_size_index(&layout) else {
-                let ptr = NonNull::new(ptr).unwrap(); // cannot deallocate a null ptr, so this is fine
+                let ptr = NonNull::new(ptr).unwrap();
                 return unsafe {
                     allocator.fallback_allocator.deallocate(ptr, layout);
                 };
