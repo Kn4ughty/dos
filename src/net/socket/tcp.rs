@@ -377,8 +377,8 @@ impl TcpSegmentHeader {
         options_vec.extend_from_slice(&bytes[20..20 + Self::options_length(data_offset)]);
 
         Ok(Self {
-            src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()).into(),
-            dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()).into(),
+            src_port: u16::from_be_bytes(bytes[0..2].try_into().unwrap()),
+            dst_port: u16::from_be_bytes(bytes[2..4].try_into().unwrap()),
             sequence_num: u32::from_be_bytes(bytes[4..8].try_into().unwrap()),
             ack_num: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
             data_offset,
@@ -482,7 +482,7 @@ impl EphemeralPortTracker {
         let mut new = lepr.last_registered + 1;
 
         if new >= lepr.range.end {
-            new = lepr.range.start
+            new = lepr.range.start;
         }
 
         new
