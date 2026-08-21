@@ -32,15 +32,19 @@ pub struct RegistryKey {
 // this function has no protection against a connection opening flooding attack.
 // I will allocate all the required resources and then run out of memory :p
 pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
-    let Ok(segment) = TcpSegment::from_bytes(packet.data) else {
-        log::error!("Unable to turn ip packet into TcpSegment");
-        return;
+    let segment = match TcpSegment::from_bytes(packet.data) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("Unable to turn ip packet into TcpSegment. Error: {e:?}");
+            return;
+        }
     };
 
     let mut registry = REGISTRY.lock();
+    // Check that we have an open port for the incoming packet
     let Some(key) = registry.get_mut(&segment.header.dst_port) else {
         log::debug!(
-            "No open port ({})for incoming tcp packet",
+            "No open port ({}) for incoming tcp packet",
             segment.header.dst_port
         );
         return;
@@ -56,6 +60,7 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
         return;
     }
 
+    // Put packet into the correct socket queue
     let socket_addr = SocketAddrV4::new(packet.header.source_address, segment.header.src_port);
     match key.packet_queue.entry(socket_addr) {
         hashbrown::hash_map::Entry::Occupied(o) => {
@@ -64,6 +69,8 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             }
         }
         hashbrown::hash_map::Entry::Vacant(v) => {
+            // This is the first incoming connection from this source
+
             // need to handle acking the connection in this case
             v.insert(TcpConnection::new(socket_addr));
         }
@@ -363,13 +370,19 @@ impl TcpSegmentHeader {
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, TcpError> {
-        if bytes.len() > 20 {
+        if bytes.len() < 20 {
+            log::trace!("other len was not enought");
             return Err(TcpError::HigherLevelPacketWasTooShort);
         }
 
-        let data_offset = bytes[12] & 0xF0;
+        let data_offset = (bytes[12] & 0xF0) >> 4;
 
-        if bytes.len() > 20 + Self::options_length(data_offset) {
+        if bytes.len() < 20 + Self::options_length(data_offset) {
+            log::trace!(
+                "options len was not enough. data_offset = {}, optlen = {}",
+                data_offset,
+                Self::options_length(data_offset)
+            );
             return Err(TcpError::HigherLevelPacketWasTooShort);
         }
 
