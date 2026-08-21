@@ -147,6 +147,7 @@ impl Shell {
             }
             "ping" => crate::net::ping(args).await,
             "ncu" => crate::net::ncu(args).await,
+            "ncl" => crate::net::ncl(args).await,
             _ => {
                 vga_println!("Unknown command!");
             }

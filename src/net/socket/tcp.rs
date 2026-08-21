@@ -1,9 +1,13 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::{
-    net::{Ipv4Addr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    pin::Pin,
     range::Range,
+    task::{Context, Poll},
 };
+use crossbeam_queue::ArrayQueue;
+use futures::{Stream, StreamExt, task::AtomicWaker};
 
 use bitflags::bitflags;
 use hashbrown::HashMap;
@@ -19,14 +23,27 @@ use crate::sync::spinlock::Mutex;
 
 const TCP_WINDOW_SIZE: u16 = 10;
 
+const MAX_PENDING_CONNECTIONS: usize = 10;
+
 lazy_static! {
+    /// From local port, (listener) to registry key
     static ref REGISTRY: Mutex<HashMap<Port, RegistryKey>> = Mutex::new(HashMap::new());
 }
 
+// TODO. Implement drop for the socket types to auto close connections
+
+// This will need waker registered to it so that a method to poll for new connections can be
+// implemented
 pub struct RegistryKey {
     binding_address: Ipv4Addr,
-    /// From source address to a queue
-    packet_queue: HashMap<SocketAddrV4, TcpConnection>,
+
+    /// Connections that have not been accepted / handed out as a `TcpStream` yet
+    pending_connections: ArrayQueue<TcpConnection>,
+
+    /// From remote address to a queue
+    connections: HashMap<SocketAddrV4, TcpConnection>,
+
+    waker: AtomicWaker,
 }
 
 // this function has no protection against a connection opening flooding attack.
@@ -60,49 +77,128 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
         return;
     }
 
+    let remote_addr = SocketAddrV4::new(packet.header.source_address, segment.header.src_port);
+    let local_addr = SocketAddrV4::new(packet.header.destination_address, segment.header.dst_port);
+
     // Put packet into the correct socket queue
-    let socket_addr = SocketAddrV4::new(packet.header.source_address, segment.header.src_port);
-    match key.packet_queue.entry(socket_addr) {
+    match key.connections.entry(remote_addr) {
         hashbrown::hash_map::Entry::Occupied(o) => {
             if let Err(e) = o.into_mut().recieve_segment(packet) {
                 log::error!("tcp error: {e:?}");
             }
         }
-        hashbrown::hash_map::Entry::Vacant(v) => {
+        hashbrown::hash_map::Entry::Vacant(_v) => {
             // This is the first incoming connection from this source
 
             // need to handle acking the connection in this case
-            v.insert(TcpConnection::new(socket_addr));
+            let mut new_connection = TcpConnection::new(remote_addr, local_addr);
+            new_connection.recieve_segment(packet);
+            key.pending_connections.push(new_connection);
+            key.waker.wake();
         }
     }
 }
 
+/// Listens for incoming TCP connections
+/// This is the user accessible version of a registry entry
+/// there needs to be two since the registry handles actually taking in packets
 pub struct TcpListener {
-    pub port: Port,
-    binding_addresss: Ipv4Addr,
-    connections: Vec<TcpConnection>,
+    binding_address: SocketAddrV4,
 }
 
 impl<'a> TcpListener {
     #[must_use]
-    pub fn bind(port: Port, binding_addresss: Ipv4Addr) -> TcpListener {
-        TcpListener {
-            port,
-            binding_addresss,
-            connections: Vec::new(),
+    pub fn bind(binding_address: SocketAddrV4) -> Result<TcpListener, TcpError> {
+        let out = TcpListener { binding_address };
+
+        // Setup registry entry
+        let mut reg = REGISTRY.lock();
+        match reg.entry(binding_address.port()) {
+            hashbrown::hash_map::Entry::Vacant(v) => {
+                v.insert(RegistryKey {
+                    binding_address: *binding_address.ip(),
+                    pending_connections: ArrayQueue::new(MAX_PENDING_CONNECTIONS),
+                    connections: HashMap::new(),
+                    waker: AtomicWaker::new(),
+                });
+                Ok(out)
+            }
+            hashbrown::hash_map::Entry::Occupied(_o) => Err(TcpError::PortAlreadyInUse),
         }
     }
 
     /// Waits for an incoming connection, and then returns a handle to that connection
-    pub async fn accept(&self) -> TcpStream {
-        todo!()
+    pub async fn accept(&mut self) -> TcpStream {
+        self.next()
+            .await
+            .expect("nuh uh cant be error cause i say so")
+    }
+
+    fn try_get_stream(binding_address: SocketAddrV4) -> Option<TcpStream> {
+        let mut reg = REGISTRY.lock();
+        let entry = reg
+            .get_mut(&binding_address.port())
+            .expect("RegistryValue removed while TCPListener still exists is invalid");
+
+        if let Some(connection) = entry.pending_connections.pop() {
+            let remote_addr = connection.remote_addr;
+            let local_addr = connection.local_addr;
+
+            // Convert into accepted connection
+            if let Some(conn) = entry.connections.insert(remote_addr, connection) {
+                panic!(
+                    "there was already a connection for this address even though it was in the pending queue. This indicates a logic error in the new connection handling code. conn: {:?}",
+                    conn
+                )
+            }
+            // then convert into Stream
+            let stream = TcpStream {
+                local_addr,
+                remote_addr,
+            };
+            return Some(stream);
+        }
+        None
+    }
+}
+
+impl Stream for TcpListener {
+    type Item = TcpStream;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        log::trace!("poll for tcp listener called");
+
+        if let Some(stream) = Self::try_get_stream(self.binding_address) {
+            return Poll::Ready(Some(stream));
+        }
+
+        // There was no connection in the pending queue. register waker and wait
+        {
+            let mut reg = REGISTRY.lock();
+            let entry = reg
+                .get_mut(&self.binding_address.port())
+                .expect("RegistryValue removed while TcpListener still exists is invalid");
+
+            entry.waker.register(cx.waker());
+        }
+
+        log::trace!("omg tcp listener woke up i think");
+
+        if let Some(stream) = Self::try_get_stream(self.binding_address) {
+            log::debug!("TcpListneer found connection on second go around");
+            Poll::Ready(Some(stream))
+        } else {
+            log::debug!("Did not find conneciton in the queue");
+            Poll::Pending
+        }
     }
 }
 
 /// User accessible access to a TCP connection with a remote host
+#[derive(Debug)]
 pub struct TcpStream {
-    src_port: Port,
-    destination: SocketAddrV4,
+    local_addr: SocketAddrV4,
+    remote_addr: SocketAddrV4,
 }
 
 impl TcpStream {
@@ -117,25 +213,30 @@ impl TcpStream {
     }
 
     /// Writes into the buffer and returns how many bytes were read
+    /// # Errors
+    /// Returns an error if uh idk work this out.
+    /// connection closed by remote?
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, TcpError> {
+        log::debug!("read called for stream. self: {self:?}");
         let mut registry = REGISTRY.lock();
         let reg_key = registry
-            .get_mut(&self.src_port)
+            .get_mut(&self.local_addr.port())
             .expect("port should exist for outgoing connection");
 
         let connection = reg_key
-            .packet_queue
-            .get_mut(&self.destination)
+            .connections
+            .get_mut(&self.remote_addr)
             .ok_or(TcpError::ConnectionDoesntExist)?;
 
         Ok(connection.read(buf))
     }
 }
 
+#[derive(Debug)]
 struct TcpConnection {
+    local_addr: SocketAddrV4,
+    remote_addr: SocketAddrV4,
     state: TcpConnectionState,
-    src_port: Port, // DATA DUPLICATION :(
-    destination: SocketAddrV4,
     current_squence_num: u32,
     /// most recent packet with have sent an ack for
     current_ack_num: u32,
@@ -144,15 +245,15 @@ struct TcpConnection {
 }
 
 impl TcpConnection {
-    /// The source port is picked randomly from the (<https://en.wikipedia.org/wiki/Ephemeral_port>)[Ephemeral port] range
-    pub fn new(destination: SocketAddrV4) -> Self {
+    // /// The source port is picked randomly from the (<https://en.wikipedia.org/wiki/Ephemeral_port>)[Ephemeral port] range
+    pub fn new(remote_addr: SocketAddrV4, local_addr: SocketAddrV4) -> Self {
         let random_seq_num = 0; // Should be random but this will work
         TcpConnection {
+            local_addr,
+            remote_addr,
             state: TcpConnectionState::Closed,
             current_ack_num: 0,
             current_squence_num: random_seq_num,
-            src_port: EphemeralPortTracker::get_new(),
-            destination,
             last_read_byte: random_seq_num,
             segment_buffer: [const { None }; TCP_WINDOW_SIZE as usize],
         }
@@ -173,7 +274,7 @@ impl TcpConnection {
     /// Small helper function
     /// Delete me if used in <3 places
     async fn get_interface(&self) -> Result<net::Interface, TcpError> {
-        net::get_inferface_for_ip_via_subnet(*self.destination.ip())
+        net::get_inferface_for_ip_via_subnet(*self.remote_addr.ip())
             .await
             .ok_or(TcpError::NoInterfaceAvailable)
     }
@@ -181,8 +282,8 @@ impl TcpConnection {
     /// Helper function to create a tcp segment based on the current state
     fn create_base_segment(&self) -> TcpSegment {
         let header = TcpSegmentHeader {
-            src_port: self.src_port,
-            dst_port: self.destination.port(),
+            src_port: self.local_addr.port(),
+            dst_port: self.remote_addr.port(),
             sequence_num: self.current_squence_num,
             ack_num: self.current_ack_num,
             data_offset: 0,
@@ -218,7 +319,7 @@ impl TcpConnection {
     async fn send_segment(&mut self, segment: TcpSegment) -> Result<(), TcpError> {
         let segment_bytes = segment.to_bytes();
 
-        let source_ip = if self.destination.ip().is_loopback() {
+        let source_ip = if self.remote_addr.ip().is_loopback() {
             Ipv4Addr::LOCALHOST
         } else {
             self.get_interface().await?.ip
@@ -226,7 +327,7 @@ impl TcpConnection {
 
         let ip_packet = ip::IPv4Packet::from_source_dest_and_data(
             source_ip,
-            *self.destination.ip(),
+            *self.remote_addr.ip(),
             ip::IPProtocol::Tcp,
             segment_bytes.as_slice(),
         )
@@ -283,6 +384,7 @@ impl TcpConnection {
     }
 }
 
+#[derive(Debug)]
 struct TcpSegmentHeader {
     src_port: Port,
     dst_port: Port,
@@ -299,12 +401,14 @@ struct TcpSegmentHeader {
     options: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct TcpSegment {
     header: TcpSegmentHeader,
     data: Vec<u8>,
 }
 
 bitflags! {
+    #[derive(Debug)]
     struct TcpSegmentFlags: u8 {
         /// Congestion window reduced
         const CWR = 1;
@@ -452,6 +556,7 @@ pub enum TcpError {
     ConnectionDoesntExist,
     TcpSegmentBufferFull,
     HigherLevelPacketWasTooShort,
+    PortAlreadyInUse,
     IpError(IpError),
 }
 

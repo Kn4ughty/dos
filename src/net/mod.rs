@@ -298,6 +298,33 @@ pub async fn ncu(args: &[&str]) {
     }
 }
 
+/// TCP listen on specified port
+pub async fn ncl(args: &[&str]) {
+    #[expect(clippy::len_zero)]
+    if args.len() < 1 {
+        println!("Not enough arguments. Expected >= 1");
+        return;
+    }
+
+    let Ok(port) = u16::from_str(args[0]) else {
+        println!("Could not turn port to string");
+        return;
+    };
+
+    let mut listener =
+        match socket::tcp::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)) {
+            Ok(l) => l,
+            Err(e) => {
+                println!("Error binding port: {e:?}");
+                return;
+            }
+        };
+
+    let mut stream = listener.accept().await;
+    let mut buf = [0_u8; 20];
+    println!("{:?}", stream.read(&mut buf));
+}
+
 fn ones_complement_checksum(data: &[u8]) -> u16 {
     let mut sum: u32 = 0;
 
