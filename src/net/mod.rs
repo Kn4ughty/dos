@@ -321,6 +321,7 @@ pub async fn ncl(args: &[&str]) {
         };
 
     let mut stream = listener.accept().await;
+    stream.ensure_established().await;
     let mut buf = [0_u8; 20];
     println!("{:?}", stream.read(&mut buf));
 }

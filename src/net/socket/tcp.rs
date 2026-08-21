@@ -1,10 +1,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddrV4},
     pin::Pin,
     range::Range,
     task::{Context, Poll},
+    time::Duration,
 };
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, StreamExt, task::AtomicWaker};
@@ -14,12 +15,15 @@ use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use socket::Port;
 
-use crate::net::{
-    self,
-    ip::{self, IPv4Packet, IpError},
-    socket,
-};
 use crate::sync::spinlock::Mutex;
+use crate::{
+    net::{
+        self,
+        ip::{self, IPv4Packet, IpError},
+        socket,
+    },
+    task::sleep::sleep_duration,
+};
 
 const TCP_WINDOW_SIZE: u16 = 10;
 
@@ -43,7 +47,7 @@ pub struct RegistryKey {
     /// From remote address to a queue
     connections: HashMap<SocketAddrV4, TcpConnection>,
 
-    waker: AtomicWaker,
+    new_connection_waker: AtomicWaker,
 }
 
 // this function has no protection against a connection opening flooding attack.
@@ -88,13 +92,22 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             }
         }
         hashbrown::hash_map::Entry::Vacant(_v) => {
+            log::trace!("New incoming connection from source: {:?}", remote_addr);
             // This is the first incoming connection from this source
 
             // need to handle acking the connection in this case
-            let mut new_connection = TcpConnection::new(remote_addr, local_addr);
-            new_connection.recieve_segment(packet);
-            key.pending_connections.push(new_connection);
-            key.waker.wake();
+            let mut new_connection =
+                TcpConnection::new(remote_addr, local_addr, OpenStatus::PassiveOpen);
+            let _ = new_connection
+                .recieve_segment(packet)
+                .map_err(|e| log::info!("got an error receiving segment: {e:?}"));
+
+            let _ = key
+                .pending_connections
+                .push(new_connection)
+                .map_err(|e| log::info!("got an error pushing connection: {e:?}"));
+
+            key.new_connection_waker.wake();
         }
     }
 }
@@ -119,7 +132,7 @@ impl<'a> TcpListener {
                     binding_address: *binding_address.ip(),
                     pending_connections: ArrayQueue::new(MAX_PENDING_CONNECTIONS),
                     connections: HashMap::new(),
-                    waker: AtomicWaker::new(),
+                    new_connection_waker: AtomicWaker::new(),
                 });
                 Ok(out)
             }
@@ -179,7 +192,7 @@ impl Stream for TcpListener {
                 .get_mut(&self.binding_address.port())
                 .expect("RegistryValue removed while TcpListener still exists is invalid");
 
-            entry.waker.register(cx.waker());
+            entry.new_connection_waker.register(cx.waker());
         }
 
         log::trace!("omg tcp listener woke up i think");
@@ -212,6 +225,26 @@ impl TcpStream {
         // done
     }
 
+    pub async fn ensure_established(&mut self) {
+        // continually loop on update until established with some sort of delay between calls
+        loop {
+            {
+                let mut reg = REGISTRY.lock();
+                let entry = reg.get_mut(&self.local_addr.port()).expect("fuck you");
+                let conn = entry
+                    .connections
+                    .get_mut(&self.remote_addr)
+                    .expect("should exist i say so");
+                if conn.state == TcpConnectionState::Established {
+                    log::info!("connection established yayy lets go");
+                    break;
+                }
+                conn.update().await;
+            }
+            sleep_duration(Duration::from_millis(10)).await;
+        }
+    }
+
     /// Writes into the buffer and returns how many bytes were read
     /// # Errors
     /// Returns an error if uh idk work this out.
@@ -232,10 +265,19 @@ impl TcpStream {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum OpenStatus {
+    /// listening
+    PassiveOpen,
+    /// We made the connection
+    ActiveOpen,
+}
+
 #[derive(Debug)]
 struct TcpConnection {
     local_addr: SocketAddrV4,
     remote_addr: SocketAddrV4,
+    open_status: OpenStatus,
     state: TcpConnectionState,
     current_squence_num: u32,
     /// most recent packet with have sent an ack for
@@ -246,12 +288,20 @@ struct TcpConnection {
 
 impl TcpConnection {
     // /// The source port is picked randomly from the (<https://en.wikipedia.org/wiki/Ephemeral_port>)[Ephemeral port] range
-    pub fn new(remote_addr: SocketAddrV4, local_addr: SocketAddrV4) -> Self {
+    pub fn new(
+        remote_addr: SocketAddrV4,
+        local_addr: SocketAddrV4,
+        open_status: OpenStatus,
+    ) -> Self {
         let random_seq_num = 0; // Should be random but this will work
         TcpConnection {
             local_addr,
             remote_addr,
-            state: TcpConnectionState::Closed,
+            open_status,
+            state: match open_status {
+                OpenStatus::PassiveOpen => TcpConnectionState::Listen,
+                OpenStatus::ActiveOpen => TcpConnectionState::Closed,
+            },
             current_ack_num: 0,
             current_squence_num: random_seq_num,
             last_read_byte: random_seq_num,
@@ -260,14 +310,31 @@ impl TcpConnection {
     }
 
     pub fn recieve_segment(&mut self, ip_packet: &IPv4Packet) -> Result<(), TcpError> {
+        let segment = TcpSegment::from_bytes(ip_packet.data)?;
+
+        log::trace!("receiving segment. segment: {:?}", segment);
+
+        if segment.header.flags == TcpSegmentFlags::SYN {
+            log::trace!("recieved a tcp segment into connection and it was SYN");
+            self.state = TcpConnectionState::SynSent; // client has sent syn
+            self.current_ack_num = segment.header.sequence_num + 1;
+            // No need to store this  segment into the segment buffer since it is just a setup
+            // packet; it contains no data
+            return Ok(());
+        }
+
+        if segment.header.flags == TcpSegmentFlags::ACK {
+            log::debug!("omg ack, connection made!!");
+            self.state = TcpConnectionState::Established;
+            // This packet can contain first chunk of data so put it in queue
+        }
+
         let Some(slot) = self.segment_buffer.iter_mut().find(|se| se.is_none()) else {
             log::error!("TCP segment buffer is full! this shouldnt really happen :(");
             return Err(TcpError::TcpSegmentBufferFull);
         };
-        *slot = Some(TcpSegment::from_bytes(ip_packet.data)?);
 
-        // TODO. Check if need to ack the packet and stuff
-
+        *slot = Some(segment);
         Ok(())
     }
 
@@ -286,7 +353,7 @@ impl TcpConnection {
             dst_port: self.remote_addr.port(),
             sequence_num: self.current_squence_num,
             ack_num: self.current_ack_num,
-            data_offset: 0,
+            data_offset: 5,
             flags: TcpSegmentFlags::empty(),
             window_size: TCP_WINDOW_SIZE,
             checksum: 0,
@@ -300,24 +367,118 @@ impl TcpConnection {
         }
     }
 
-    pub async fn connect(&mut self) -> Result<(), TcpError> {
-        if self.state != TcpConnectionState::Closed {
-            return Err(TcpError::ConnectionAlreadyEstablished);
+    /// Do one transition in the FSM to get closer to established
+    async fn update(&mut self) -> Result<(), TcpError> {
+        log::debug!("update for tcp connection called");
+
+        match &self.state {
+            TcpConnectionState::Established => {
+                // Yay already there
+            }
+            TcpConnectionState::Closed => {
+                match self.open_status {
+                    OpenStatus::PassiveOpen => {
+                        // listen for incoming connections
+                        log::trace!(
+                            "transitioning state from closed to listen as we are PassiveOpen"
+                        );
+                        self.state = TcpConnectionState::Listen;
+                        // uh wait this shouldnt actually happen because how do we exist if we dont
+                        // know what the remote host is.
+                        // yeah the way ive structured it this shouldnt be possible. Panic for now,
+                        // and late make it un-representable
+                        panic!()
+                    }
+                    OpenStatus::ActiveOpen => {
+                        log::trace!("Sending syn packet to destination because we are activeOpen");
+                        // Send SYN
+                        let mut segment = self.create_base_segment();
+                        segment.header.flags = TcpSegmentFlags::SYN;
+                        self.send_segment(segment).await?;
+                        self.state = TcpConnectionState::SynSent;
+                    }
+                }
+            }
+            TcpConnectionState::SynSent => {
+                // client just sent a syn packet to the remote.
+                // either wait for syn ack or send a syn ack
+
+                match self.open_status {
+                    OpenStatus::PassiveOpen => {
+                        let mut segment = self.create_base_segment();
+                        segment.header.flags = TcpSegmentFlags::ACK | TcpSegmentFlags::SYN;
+                        self.send_segment(segment).await?;
+                    }
+                    OpenStatus::ActiveOpen => {
+                        todo!()
+                    }
+                }
+            }
+            TcpConnectionState::SynReceived => {
+                // this assert allows for denial of service attack. Fix it later
+                assert_eq!(
+                    self.open_status,
+                    OpenStatus::PassiveOpen,
+                    "should not be in SynReceived unless we are server."
+                );
+                // we are the server, and just recieved a syn.
+                // The packet handling code should have handled updating the state already, so just
+                // need to respond with the ack
+                let mut segment = self.create_base_segment();
+                segment.header.flags = TcpSegmentFlags::ACK;
+                self.send_segment(segment).await?;
+                // at this  point i do actually have to implement wating for new packets
+                // since otherwise we just send 1 billion acks
+
+                // now it is the job of the packet recieving code to  wait for the syn ack and set
+                // established to be true
+            }
+            TcpConnectionState::Listen => {
+                log::trace!("update called while in listen. Do nothing. wait for connection");
+            }
+            unhandled => {
+                panic!("Unhandled TCP state: {unhandled:?}");
+            }
         }
-        // Send SYN
-        let mut segment = self.create_base_segment();
-        segment.header.flags = segment.header.flags.union(TcpSegmentFlags::SYN);
-        self.send_segment(segment).await?;
-        // Wait for SYN+ACK
 
-        // Send ACK
-
-        // Established!!
         Ok(())
     }
 
+    // pub async fn connect(&mut self) -> Result<(), TcpError> {
+    //     if self.state != TcpConnectionState::Closed {
+    //         return Err(TcpError::ConnectionAlreadyEstablished);
+    //     }
+    //     // Wait for SYN+ACK
+    //
+    //     // Send ACK
+    //
+    //     // Established!!
+    //     Ok(())
+    // }
+
     async fn send_segment(&mut self, segment: TcpSegment) -> Result<(), TcpError> {
-        let segment_bytes = segment.to_bytes();
+        let mut segment_bytes = segment.to_bytes();
+
+        let mut psudo_header = [0_u8; 12];
+        psudo_header[0..4].copy_from_slice(&self.local_addr.ip().to_bits().to_be_bytes());
+        psudo_header[4..8].copy_from_slice(&self.remote_addr.ip().to_bits().to_be_bytes());
+        psudo_header[9] = 6;
+        // tcp length is header length + data length
+        psudo_header[10..12].copy_from_slice(
+            &u16::try_from(segment_bytes.len())
+                .expect("Tcp segment must fin in u16")
+                .to_be_bytes(),
+        );
+
+        // lol memory allocation :(
+        let mut full_psudeo: Vec<u8> = Vec::with_capacity(segment_bytes.len() + psudo_header.len());
+        full_psudeo.extend_from_slice(&psudo_header);
+        full_psudeo.extend_from_slice(segment_bytes.as_slice());
+
+        let checksum = net::ones_complement_checksum(full_psudeo.as_slice());
+        // instead of restarting, just modify the bytes in place
+
+        segment_bytes[16..18].copy_from_slice(&checksum.to_be_bytes());
 
         let source_ip = if self.remote_addr.ip().is_loopback() {
             Ipv4Addr::LOCALHOST
@@ -408,26 +569,26 @@ struct TcpSegment {
 }
 
 bitflags! {
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     struct TcpSegmentFlags: u8 {
-        /// Congestion window reduced
-        const CWR = 1;
-        /// Function Depends on SYN flag.
-        /// If SYN = 1, TCP peer is ECN capable
-        /// If SYN = 0, a packet with congestion experienced (ECN=11) in ip header
-        const ECE = 1 << 1;
-        /// Urgent
-        const URG = 1 << 2;
-        /// Acknowledgement
-        const ACK = 1 << 3;
-        /// Push function
-        const PSH = 1 << 4;
-        /// Reset the connection
-        const RST = 1 << 5;
-        /// Synchronize the sequence_num
-        const SYN = 1 << 6;
         /// Last packet from sender
-        const FIN = 1 << 7;
+        const FIN = 1;
+        /// Synchronize the sequence_num
+        const SYN = 1 << 1;
+        /// Reset the connection
+        const RST = 1 << 2;
+        /// Push function
+        const PSH = 1 << 3;
+        /// Acknowledgement
+        const ACK = 1 << 4;
+        /// Urgent
+        const URG = 1 << 5;
+        /// If SYN = 0, a packet with congestion experienced (ECN=11) in ip header
+        /// If SYN = 1, TCP peer is ECN capable
+        /// Function Depends on SYN flag.
+        const ECE = 1 << 6;
+        /// Congestion window reduced
+        const CWR = 1 << 7;
     }
 }
 
@@ -463,7 +624,7 @@ impl TcpSegmentHeader {
 
         out[8..12].copy_from_slice(&self.ack_num.to_be_bytes());
 
-        out[12] = self.data_offset;
+        out[12] = self.data_offset << 4;
         out[13] = self.flags.bits();
         out[14..16].copy_from_slice(&self.window_size.to_be_bytes());
 
