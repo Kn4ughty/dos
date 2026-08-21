@@ -18,7 +18,10 @@ use crate::{
     net::{ethernet::EtherType, ip::IPv4Packet},
     println,
     sync::spinlock::Mutex,
-    task::{block_on, sleep::sleep_duration},
+    task::{
+        block_on,
+        sleep::{self, sleep_duration},
+    },
     time,
 };
 
@@ -322,8 +325,12 @@ pub async fn ncl(args: &[&str]) {
 
     let mut stream = listener.accept().await;
     stream.ensure_established().await;
-    let mut buf = [0_u8; 20];
-    println!("{:?}", stream.read(&mut buf));
+
+    loop {
+        let mut buf = [0_u8; 20];
+        println!("{:?}", stream.read(&mut buf));
+        sleep_duration(Duration::from_millis(100)).await;
+    }
 }
 
 fn ones_complement_checksum(data: &[u8]) -> u16 {

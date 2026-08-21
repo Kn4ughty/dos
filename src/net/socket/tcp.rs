@@ -355,7 +355,7 @@ impl TcpConnection {
             ack_num: self.current_ack_num,
             data_offset: 5,
             flags: TcpSegmentFlags::empty(),
-            window_size: TCP_WINDOW_SIZE,
+            window_size: TCP_WINDOW_SIZE * 1400, // 1400 is roughly the MTU
             checksum: 0,
             urgent_pointer: 0,
             options: vec![],
@@ -539,9 +539,13 @@ impl TcpConnection {
 
         // Now need to go back into the segments, and write into buf, if the segment is within the
         // range, and the buf can fit it.
-        todo!();
 
-        0
+        if found_range.start == found_range.end {
+            // No data found in buffer
+            return 0;
+        }
+
+        todo!()
     }
 }
 
