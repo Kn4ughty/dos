@@ -8,6 +8,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(type_alias_impl_trait)]
 #![feature(str_as_str)]
+#![feature(async_trait_bounds)]
 // Lints
 #![warn(clippy::pedantic)]
 #![allow(clippy::ptr_as_ptr)]

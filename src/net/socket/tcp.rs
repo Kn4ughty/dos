@@ -4,11 +4,12 @@ use core::{
     net::{Ipv4Addr, SocketAddrV4},
     pin::Pin,
     range::Range,
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
     time::Duration,
 };
 use crossbeam_queue::ArrayQueue;
-use futures::{Stream, StreamExt, task::AtomicWaker};
+use futures::{Stream, StreamExt, future::select, task::AtomicWaker};
 
 use bitflags::bitflags;
 use hashbrown::HashMap;
@@ -119,8 +120,10 @@ pub struct TcpListener {
     binding_address: SocketAddrV4,
 }
 
-impl<'a> TcpListener {
-    #[must_use]
+impl TcpListener {
+    /// Creates and binds a listener to a specific TCP port.
+    /// # Errors
+    /// Errors if port is already in use
     pub fn bind(binding_address: SocketAddrV4) -> Result<TcpListener, TcpError> {
         let out = TcpListener { binding_address };
 
@@ -226,22 +229,34 @@ impl TcpStream {
     }
 
     pub async fn ensure_established(&mut self) {
-        // continually loop on update until established with some sort of delay between calls
         loop {
-            {
-                let mut reg = REGISTRY.lock();
-                let entry = reg.get_mut(&self.local_addr.port()).expect("fuck you");
-                let conn = entry
-                    .connections
-                    .get_mut(&self.remote_addr)
-                    .expect("should exist i say so");
-                if conn.state == TcpConnectionState::Established {
-                    log::info!("connection established yayy lets go");
-                    break;
-                }
-                conn.update().await;
+            let done = TcpConnection::with_connection(self.local_addr, self.remote_addr, |conn| {
+                conn.state == TcpConnectionState::Established
+            });
+
+            if done {
+                return;
             }
-            sleep_duration(Duration::from_millis(10)).await;
+
+            let maybe_segment_to_send =
+                TcpConnection::with_connection(self.local_addr, self.remote_addr, |conn| {
+                    conn.update()
+                });
+            if let Some(segment) = maybe_segment_to_send {
+                // shut up
+                if let Err(e) =
+                    TcpConnection::send_segment(self.local_addr, self.remote_addr, segment).await
+                {
+                    log::error!("Error sending segment in ensure_established: {e:?}");
+                }
+            }
+
+            TcpConnection::wait_for_event(
+                self.local_addr,
+                self.remote_addr,
+                Duration::from_millis(500),
+            )
+            .await;
         }
     }
 
@@ -255,7 +270,6 @@ impl TcpStream {
         let reg_key = registry
             .get_mut(&self.local_addr.port())
             .expect("port should exist for outgoing connection");
-
         let connection = reg_key
             .connections
             .get_mut(&self.remote_addr)
@@ -284,6 +298,10 @@ struct TcpConnection {
     current_ack_num: u32,
     last_read_byte: u32,
     segment_buffer: [Option<TcpSegment>; TCP_WINDOW_SIZE as usize],
+
+    new_segment_waker: AtomicWaker,
+    // does this need to be atomic?
+    new_segment_notified: AtomicBool,
 }
 
 impl TcpConnection {
@@ -306,6 +324,8 @@ impl TcpConnection {
             current_squence_num: random_seq_num,
             last_read_byte: random_seq_num,
             segment_buffer: [const { None }; TCP_WINDOW_SIZE as usize],
+            new_segment_waker: AtomicWaker::new(),
+            new_segment_notified: AtomicBool::new(false),
         }
     }
 
@@ -313,6 +333,9 @@ impl TcpConnection {
         let segment = TcpSegment::from_bytes(ip_packet.data)?;
 
         log::trace!("receiving segment. segment: {:?}", segment);
+
+        self.new_segment_notified.store(true, Ordering::Release);
+        self.new_segment_waker.wake();
 
         if segment.header.flags == TcpSegmentFlags::SYN {
             log::trace!("recieved a tcp segment into connection and it was SYN");
@@ -330,7 +353,9 @@ impl TcpConnection {
         }
 
         let Some(slot) = self.segment_buffer.iter_mut().find(|se| se.is_none()) else {
-            log::error!("TCP segment buffer is full! this shouldnt really happen :(");
+            log::error!(
+                "TCP segment buffer is full! this shouldnt really happen (because of the window size reporting)"
+            );
             return Err(TcpError::TcpSegmentBufferFull);
         };
 
@@ -338,37 +363,40 @@ impl TcpConnection {
         Ok(())
     }
 
-    /// Small helper function
-    /// Delete me if used in <3 places
-    async fn get_interface(&self) -> Result<net::Interface, TcpError> {
-        net::get_inferface_for_ip_via_subnet(*self.remote_addr.ip())
-            .await
-            .ok_or(TcpError::NoInterfaceAvailable)
-    }
+    // timeout is paramater here so that it can change dynamically based on network conditions
+    async fn wait_for_event(
+        local_addr: SocketAddrV4,
+        remote_addr: SocketAddrV4,
+        timeout: Duration,
+    ) {
+        let wait_on_segment = core::future::poll_fn(|cx| {
+            log::trace!("Wait on segment poll called");
+            let mut reg = REGISTRY.lock();
+            let entry = reg
+                .get_mut(&local_addr.port())
+                .expect("Must be listening on this port already");
+            let conn = entry
+                .connections
+                .get_mut(&remote_addr)
+                .expect("Connection should exist");
 
-    /// Helper function to create a tcp segment based on the current state
-    fn create_base_segment(&self) -> TcpSegment {
-        let header = TcpSegmentHeader {
-            src_port: self.local_addr.port(),
-            dst_port: self.remote_addr.port(),
-            sequence_num: self.current_squence_num,
-            ack_num: self.current_ack_num,
-            data_offset: 5,
-            flags: TcpSegmentFlags::empty(),
-            window_size: TCP_WINDOW_SIZE * 1400, // 1400 is roughly the MTU
-            checksum: 0,
-            urgent_pointer: 0,
-            options: vec![],
-        };
+            conn.new_segment_waker.register(cx.waker());
 
-        TcpSegment {
-            header,
-            data: vec![],
-        }
+            if conn.new_segment_notified.swap(false, Ordering::AcqRel) {
+                log::trace!("new segment notified was true. returning ready");
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        });
+
+        let timeout_future = sleep_duration(timeout);
+
+        select(wait_on_segment, timeout_future).await;
     }
 
     /// Do one transition in the FSM to get closer to established
-    async fn update(&mut self) -> Result<(), TcpError> {
+    fn update(&mut self) -> Option<TcpSegment> {
         log::debug!("update for tcp connection called");
 
         match &self.state {
@@ -394,8 +422,9 @@ impl TcpConnection {
                         // Send SYN
                         let mut segment = self.create_base_segment();
                         segment.header.flags = TcpSegmentFlags::SYN;
-                        self.send_segment(segment).await?;
+                        // self.send_segment(segment).await?;
                         self.state = TcpConnectionState::SynSent;
+                        return Some(segment);
                     }
                 }
             }
@@ -407,7 +436,8 @@ impl TcpConnection {
                     OpenStatus::PassiveOpen => {
                         let mut segment = self.create_base_segment();
                         segment.header.flags = TcpSegmentFlags::ACK | TcpSegmentFlags::SYN;
-                        self.send_segment(segment).await?;
+                        // self.send_segment(segment).await?;
+                        return Some(segment);
                     }
                     OpenStatus::ActiveOpen => {
                         todo!()
@@ -426,7 +456,8 @@ impl TcpConnection {
                 // need to respond with the ack
                 let mut segment = self.create_base_segment();
                 segment.header.flags = TcpSegmentFlags::ACK;
-                self.send_segment(segment).await?;
+                // self.send_segment(segment).await?;
+                return Some(segment);
                 // at this  point i do actually have to implement wating for new packets
                 // since otherwise we just send 1 billion acks
 
@@ -441,27 +472,19 @@ impl TcpConnection {
             }
         }
 
-        Ok(())
+        None
     }
 
-    // pub async fn connect(&mut self) -> Result<(), TcpError> {
-    //     if self.state != TcpConnectionState::Closed {
-    //         return Err(TcpError::ConnectionAlreadyEstablished);
-    //     }
-    //     // Wait for SYN+ACK
-    //
-    //     // Send ACK
-    //
-    //     // Established!!
-    //     Ok(())
-    // }
-
-    async fn send_segment(&mut self, segment: TcpSegment) -> Result<(), TcpError> {
+    async fn send_segment(
+        local_addr: SocketAddrV4,
+        remote_addr: SocketAddrV4,
+        segment: TcpSegment,
+    ) -> Result<(), TcpError> {
         let mut segment_bytes = segment.to_bytes();
 
         let mut psudo_header = [0_u8; 12];
-        psudo_header[0..4].copy_from_slice(&self.local_addr.ip().to_bits().to_be_bytes());
-        psudo_header[4..8].copy_from_slice(&self.remote_addr.ip().to_bits().to_be_bytes());
+        psudo_header[0..4].copy_from_slice(&local_addr.ip().to_bits().to_be_bytes());
+        psudo_header[4..8].copy_from_slice(&remote_addr.ip().to_bits().to_be_bytes());
         psudo_header[9] = 6;
         // tcp length is header length + data length
         psudo_header[10..12].copy_from_slice(
@@ -480,15 +503,18 @@ impl TcpConnection {
 
         segment_bytes[16..18].copy_from_slice(&checksum.to_be_bytes());
 
-        let source_ip = if self.remote_addr.ip().is_loopback() {
+        let source_ip = if remote_addr.ip().is_loopback() {
             Ipv4Addr::LOCALHOST
         } else {
-            self.get_interface().await?.ip
+            net::get_inferface_for_ip_via_subnet(*remote_addr.ip())
+                .await
+                .ok_or(TcpError::NoInterfaceAvailable)?
+                .ip
         };
 
         let ip_packet = ip::IPv4Packet::from_source_dest_and_data(
             source_ip,
-            *self.remote_addr.ip(),
+            *remote_addr.ip(),
             ip::IPProtocol::Tcp,
             segment_bytes.as_slice(),
         )
@@ -546,6 +572,63 @@ impl TcpConnection {
         }
 
         todo!()
+    }
+
+    /// Helper function to create a tcp segment based on the current state
+    fn create_base_segment(&self) -> TcpSegment {
+        let header = TcpSegmentHeader {
+            src_port: self.local_addr.port(),
+            dst_port: self.remote_addr.port(),
+            sequence_num: self.current_squence_num,
+            ack_num: self.current_ack_num,
+            data_offset: 5,
+            flags: TcpSegmentFlags::empty(),
+            window_size: TCP_WINDOW_SIZE * 1400, // 1400 is roughly the MTU
+            checksum: 0,
+            urgent_pointer: 0,
+            options: vec![],
+        };
+
+        TcpSegment {
+            header,
+            data: vec![],
+        }
+    }
+
+    /// This function should only be called in the context where a connection MUST already exist
+    /// It will panic otherwise
+    fn with_connection<R>(
+        local_addr: SocketAddrV4,
+        remote_addr: SocketAddrV4,
+        f: impl FnOnce(&mut TcpConnection) -> R,
+    ) -> R {
+        let mut reg = REGISTRY.lock();
+        let entry = reg
+            .get_mut(&local_addr.port())
+            .expect("Must be listening on this port already");
+        let conn = entry
+            .connections
+            .get_mut(&remote_addr)
+            .expect("Connection should exist");
+
+        f(conn)
+    }
+
+    async fn async_with_connection<R>(
+        local_addr: SocketAddrV4,
+        remote_addr: SocketAddrV4,
+        f: impl async FnOnce(&mut TcpConnection) -> R,
+    ) -> R {
+        let mut reg = REGISTRY.lock();
+        let entry = reg
+            .get_mut(&local_addr.port())
+            .expect("Must be listening on this port already");
+        let conn = entry
+            .connections
+            .get_mut(&remote_addr)
+            .expect("Connection should exist");
+
+        f(conn).await
     }
 }
 
