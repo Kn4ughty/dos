@@ -6,25 +6,21 @@ use core::{
     range::Range,
     sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
-    time::Duration,
 };
 use crossbeam_queue::ArrayQueue;
-use futures::{Stream, StreamExt, future::select, task::AtomicWaker};
+use futures::{Stream, StreamExt, task::AtomicWaker};
 
 use bitflags::bitflags;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use socket::Port;
 
-use crate::sync::spinlock::Mutex;
-use crate::{
-    net::{
-        self,
-        ip::{self, IPv4Packet, IpError},
-        socket,
-    },
-    task::sleep::sleep_duration,
+use crate::net::{
+    self,
+    ip::{self, IPv4Packet, IpError},
+    socket,
 };
+use crate::sync::spinlock::Mutex;
 
 const TCP_WINDOW_SIZE: u16 = 10;
 
@@ -53,7 +49,7 @@ pub struct RegistryKey {
 
 // this function has no protection against a connection opening flooding attack.
 // I will allocate all the required resources and then run out of memory :p
-pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
+pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     let segment = match TcpSegment::from_bytes(packet.data) {
         Ok(s) => s,
         Err(e) => {
@@ -88,10 +84,18 @@ pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     // Put packet into the correct socket queue
     match key.connections.entry(remote_addr) {
         hashbrown::hash_map::Entry::Occupied(o) => {
-            if let Err(e) = o.into_mut().recieve_segment(packet) {
+            let connection = o.into_mut();
+            if let Err(e) = connection.recieve_segment(packet) {
                 log::error!("tcp error: {e:?}");
             }
+            if let Some(segment) = connection.update() {
+                if let Err(e) = TcpConnection::send_segment(local_addr, remote_addr, segment).await
+                {
+                    log::error!("error sending tcp segment from update: {e:?}");
+                }
+            }
         }
+
         hashbrown::hash_map::Entry::Vacant(_v) => {
             log::trace!("New incoming connection from source: {:?}", remote_addr);
             // This is the first incoming connection from this source
@@ -228,38 +232,6 @@ impl TcpStream {
         // done
     }
 
-    pub async fn ensure_established(&mut self) {
-        loop {
-            let done = TcpConnection::with_connection(self.local_addr, self.remote_addr, |conn| {
-                conn.state == TcpConnectionState::Established
-            });
-
-            if done {
-                return;
-            }
-
-            let maybe_segment_to_send =
-                TcpConnection::with_connection(self.local_addr, self.remote_addr, |conn| {
-                    conn.update()
-                });
-            if let Some(segment) = maybe_segment_to_send {
-                // shut up
-                if let Err(e) =
-                    TcpConnection::send_segment(self.local_addr, self.remote_addr, segment).await
-                {
-                    log::error!("Error sending segment in ensure_established: {e:?}");
-                }
-            }
-
-            TcpConnection::wait_for_event(
-                self.local_addr,
-                self.remote_addr,
-                Duration::from_millis(500),
-            )
-            .await;
-        }
-    }
-
     /// Writes into the buffer and returns how many bytes were read
     /// # Errors
     /// Returns an error if uh idk work this out.
@@ -276,6 +248,10 @@ impl TcpStream {
             .ok_or(TcpError::ConnectionDoesntExist)?;
 
         Ok(connection.read(buf))
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> Result<usize, TcpError> {
+        todo!()
     }
 }
 
@@ -341,6 +317,7 @@ impl TcpConnection {
             log::trace!("recieved a tcp segment into connection and it was SYN");
             self.state = TcpConnectionState::SynSent; // client has sent syn
             self.current_ack_num = segment.header.sequence_num + 1;
+            self.last_read_byte = self.current_ack_num;
             // No need to store this  segment into the segment buffer since it is just a setup
             // packet; it contains no data
             return Ok(());
@@ -363,45 +340,14 @@ impl TcpConnection {
         Ok(())
     }
 
-    // timeout is paramater here so that it can change dynamically based on network conditions
-    async fn wait_for_event(
-        local_addr: SocketAddrV4,
-        remote_addr: SocketAddrV4,
-        timeout: Duration,
-    ) {
-        let wait_on_segment = core::future::poll_fn(|cx| {
-            log::trace!("Wait on segment poll called");
-            let mut reg = REGISTRY.lock();
-            let entry = reg
-                .get_mut(&local_addr.port())
-                .expect("Must be listening on this port already");
-            let conn = entry
-                .connections
-                .get_mut(&remote_addr)
-                .expect("Connection should exist");
-
-            conn.new_segment_waker.register(cx.waker());
-
-            if conn.new_segment_notified.swap(false, Ordering::AcqRel) {
-                log::trace!("new segment notified was true. returning ready");
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        });
-
-        let timeout_future = sleep_duration(timeout);
-
-        select(wait_on_segment, timeout_future).await;
-    }
-
     /// Do one transition in the FSM to get closer to established
-    fn update(&mut self) -> Option<TcpSegment> {
+    fn update(&mut self) -> Option<Vec<TcpSegment>> {
         log::debug!("update for tcp connection called");
 
         match &self.state {
             TcpConnectionState::Established => {
-                // Yay already there
+                // Make sure to ack recieved packets
+                //todo
             }
             TcpConnectionState::Closed => {
                 match self.open_status {
@@ -537,6 +483,7 @@ impl TcpConnection {
         log::trace!("Entering read range finding loop");
         loop {
             let mut should_break = true;
+            log::trace!("segment buffer: {:?}", self.segment_buffer);
             for segment in &self.segment_buffer {
                 let Some(segment) = segment else { continue };
 
@@ -593,42 +540,6 @@ impl TcpConnection {
             header,
             data: vec![],
         }
-    }
-
-    /// This function should only be called in the context where a connection MUST already exist
-    /// It will panic otherwise
-    fn with_connection<R>(
-        local_addr: SocketAddrV4,
-        remote_addr: SocketAddrV4,
-        f: impl FnOnce(&mut TcpConnection) -> R,
-    ) -> R {
-        let mut reg = REGISTRY.lock();
-        let entry = reg
-            .get_mut(&local_addr.port())
-            .expect("Must be listening on this port already");
-        let conn = entry
-            .connections
-            .get_mut(&remote_addr)
-            .expect("Connection should exist");
-
-        f(conn)
-    }
-
-    async fn async_with_connection<R>(
-        local_addr: SocketAddrV4,
-        remote_addr: SocketAddrV4,
-        f: impl async FnOnce(&mut TcpConnection) -> R,
-    ) -> R {
-        let mut reg = REGISTRY.lock();
-        let entry = reg
-            .get_mut(&local_addr.port())
-            .expect("Must be listening on this port already");
-        let conn = entry
-            .connections
-            .get_mut(&remote_addr)
-            .expect("Connection should exist");
-
-        f(conn).await
     }
 }
 

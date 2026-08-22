@@ -24,7 +24,7 @@ pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
             icmp::handle_icmp(packet).await;
         }
         IPProtocol::Udp | IPProtocol::Tcp => {
-            socket::handle_incoming_packet(packet);
+            socket::handle_incoming_packet(packet).await;
         }
     }
 }

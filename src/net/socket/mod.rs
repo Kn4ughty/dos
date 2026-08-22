@@ -17,10 +17,10 @@ pub enum SocketError {
     IpError(ip::IpError),
 }
 
-pub fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
+pub async fn handle_incoming_packet(packet: &IPv4Packet<'_>) {
     match packet.header.protocol {
         IPProtocol::Tcp => {
-            tcp::handle_incoming_packet(packet);
+            tcp::handle_incoming_packet(packet).await;
         }
         IPProtocol::Udp => {
             udp::handle_incoming_packet(packet);

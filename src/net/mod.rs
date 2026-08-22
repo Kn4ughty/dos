@@ -324,12 +324,11 @@ pub async fn ncl(args: &[&str]) {
         };
 
     let mut stream = listener.accept().await;
-    stream.ensure_established().await;
 
     loop {
         let mut buf = [0_u8; 20];
         println!("{:?}", stream.read(&mut buf));
-        sleep_duration(Duration::from_millis(100)).await;
+        sleep_duration(Duration::from_millis(500)).await;
     }
 }
 
