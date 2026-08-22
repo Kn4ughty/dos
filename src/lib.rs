@@ -1,7 +1,7 @@
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
-// TODO update rust version so featrure flag isnt needed
+// TODO update rust version so feature flag isnt needed
 #![feature(string_from_utf8_lossy_owned)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -11,14 +11,17 @@
 #![feature(async_trait_bounds)]
 // Lints
 #![warn(clippy::pedantic)]
-#![allow(clippy::ptr_as_ptr)]
-#![allow(clippy::used_underscore_items)]
-#![allow(clippy::uninlined_format_args)]
-#![allow(clippy::missing_panics_doc)]
-#![allow(clippy::items_after_statements)]
-#![allow(clippy::new_without_default)]
-#![allow(clippy::match_wildcard_for_single_variants)]
-#![allow(clippy::assigning_clones)]
+#![allow(
+    clippy::ptr_as_ptr,
+    clippy::used_underscore_items,
+    clippy::uninlined_format_args,
+    clippy::missing_panics_doc,
+    clippy::items_after_statements,
+    clippy::new_without_default,
+    clippy::match_wildcard_for_single_variants,
+    clippy::assigning_clones,
+    clippy::collapsible_if
+)]
 #![deny(
     clippy::alloc_instead_of_core,
     clippy::allow_attributes,
